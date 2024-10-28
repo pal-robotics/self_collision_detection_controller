@@ -1,0 +1,8 @@
+<library path="safety_controller">
+  <class name="safety_controller/SafetyController"
+         type="safety_controller::SafetyController" base_class_type="controller_interface::ChainableControllerInterface">
+  <description>
+    PidController ros2_control controller.
+  </description>
+  </class>
+</library>

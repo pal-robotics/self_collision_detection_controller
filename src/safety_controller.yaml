@@ -1,0 +1,22 @@
+safety_controller:
+  joints: {
+    type: string_array,
+    default_value: [],
+    description: "Joint names to control and listen to",
+    read_only: true,
+    validation: {
+      unique<>: null,
+      not_empty<>: null,
+    }
+  }
+  
+
+  command_interface: {
+    type: string,
+    default_value: "",
+    description: "Name of the interface used by the controller for writing commands to the hardware.",
+    read_only: true,
+    validation: {
+      not_empty<>: null,
+    }
+  }
