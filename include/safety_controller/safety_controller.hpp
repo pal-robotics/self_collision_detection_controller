@@ -15,8 +15,8 @@
 // Authors: Daniel Azanov, Dr. Denis
 //
 
-#ifndef PID_CONTROLLER__PID_CONTROLLER_HPP_
-#define PID_CONTROLLER__PID_CONTROLLER_HPP_
+#ifndef SAFETY_CONTROLLER_SAFETY_CONTROLLER_HPP_
+#define SAFETY_CONTROLLER__SAFETY_CONTROLLER_HPP_
 
 #include <memory>
 #include <string>
@@ -24,7 +24,6 @@
 
 #include "control_msgs/msg/multi_dof_command.hpp"
 #include "control_msgs/msg/multi_dof_state_stamped.hpp"
-#include "control_toolbox/pid_ros.hpp"
 #include "controller_interface/chainable_controller_interface.hpp"
 #include "std_msgs/msg/float64.hpp"
 #include "safety_controller_parameters.hpp"
@@ -74,13 +73,6 @@ protected:
   std::shared_ptr<safety_controller::ParamListener> param_listener_;
   safety_controller::Params params_;
 
-  std::vector<std::string> reference_and_state_dof_names_;
-  size_t dof_;
-  std::vector<double> measured_state_values_;
-
-  // Feed-forward velocity weight factor when calculating closed loop pid adapter's command
-  std::vector<double> feedforward_gain_;
-
   std::map<std::string, int> joint_id_;
 
   // Command subscribers and Controller State publisher
@@ -115,6 +107,5 @@ private:
   void reference_callback(const std::shared_ptr<ControllerReferenceMsg> msg);
 };
 
-}  // namespace pid_controller
-
-#endif  // PID_CONTROLLER__PID_CONTROLLER_HPP_
+}
+#endif

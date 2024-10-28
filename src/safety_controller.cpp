@@ -39,13 +39,6 @@ void reset_controller_reference_msg(
   msg->values.resize(dof_names.size(), std::numeric_limits<double>::quiet_NaN());
   msg->values_dot.resize(dof_names.size(), std::numeric_limits<double>::quiet_NaN());
 }
-
-void reset_controller_measured_state_msg(
-  const std::shared_ptr<ControllerCommandMsg> & msg, const std::vector<std::string> & dof_names)
-{
-  reset_controller_reference_msg(msg, dof_names);
-}
-
 }  // namespace
 
 namespace safety_controller
@@ -326,14 +319,9 @@ controller_interface::return_type SafetyController::update_reference_from_subscr
   auto current_ref = input_ref_.readFromRT();
 
 
-  for (size_t i = 0; i < dof_; ++i) {
+  for (size_t i = 0; i < params_.joints.size(); ++i) {
     if (!std::isnan((*current_ref)->values[i])) {
       reference_interfaces_[i] = (*current_ref)->values[i];
-      if (reference_interfaces_.size() == 2 * dof_ &&
-        !std::isnan((*current_ref)->values_dot[i]))
-      {
-        reference_interfaces_[dof_ + i] = (*current_ref)->values_dot[i];
-      }
 
       (*current_ref)->values[i] = std::numeric_limits<double>::quiet_NaN();
     }
