@@ -37,6 +37,19 @@
 #include "joint_limits/joint_limiter_interface.hpp"
 #include "joint_limits/joint_saturation_limiter.hpp"
 #include "urdf/model.h"
+#include <pinocchio/parsers/urdf.hpp>
+
+#include "pinocchio/algorithm/joint-configuration.hpp"
+#include "pinocchio/multibody/geometry.hpp"
+#include <hpp/fcl/collision_data.h>
+
+#include "pinocchio/multibody/model.hpp"
+#include "pinocchio/multibody/data.hpp"
+#include "pinocchio/multibody/geometry.hpp"
+
+#include <pinocchio/collision/collision.hpp>
+#include <pinocchio/fwd.hpp>
+
 
 namespace safety_controller
 {
@@ -105,6 +118,20 @@ private:
   std::vector<double> index_violated_prev_;
   std::vector<double> current_position_, current_reference_;
   void reference_callback(const std::shared_ptr<ControllerReferenceMsg> msg);
+
+  pinocchio::Model model_;
+  pinocchio::GeometryModel geom_model_;
+
+  pinocchio::Data data_;
+  pinocchio::GeometryData geom_data_;
+
+  std::string filename =
+    "/home/user/pinocchio_ws/src/triago_robot/triago_description/robots/triago.urdf";
+
+  std::string filename_srdf =
+    "/home/user/pinocchio_ws/src/triago_moveit_config/config/triago.srdf";
+
+
 };
 
 }
