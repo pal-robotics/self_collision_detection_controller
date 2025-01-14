@@ -15,8 +15,8 @@
 // Authors: Daniel Azanov, Dr. Denis
 //
 
-#ifndef SAFETY_CONTROLLER_SAFETY_CONTROLLER_HPP_
-#define SAFETY_CONTROLLER__SAFETY_CONTROLLER_HPP_
+#ifndef COLLISION_CONTROLLER_COLLISION_CONTROLLER_HPP_
+#define COLLISION_CONTROLLER__COLLISION_CONTROLLER_HPP_
 
 #include <memory>
 #include <string>
@@ -26,7 +26,7 @@
 #include "control_msgs/msg/multi_dof_state_stamped.hpp"
 #include "controller_interface/chainable_controller_interface.hpp"
 #include "std_msgs/msg/float64.hpp"
-#include "safety_controller_parameters.hpp"
+#include "collision_controller_parameters.hpp"
 #include "rclcpp_lifecycle/state.hpp"
 #include "realtime_tools/realtime_buffer.h"
 #include "realtime_tools/realtime_publisher.h"
@@ -41,22 +41,24 @@
 
 #include "pinocchio/algorithm/joint-configuration.hpp"
 #include "pinocchio/multibody/geometry.hpp"
-#include <hpp/fcl/collision_data.h>
 
 #include "pinocchio/multibody/model.hpp"
 #include "pinocchio/multibody/data.hpp"
 #include "pinocchio/multibody/geometry.hpp"
+#include "change_controllers_interfaces/action/switch.hpp"
+#include "rclcpp_action/rclcpp_action.hpp"
 
 #include <pinocchio/collision/collision.hpp>
 #include <pinocchio/fwd.hpp>
+#include "pinocchio/parsers/srdf.hpp"
 
 
-namespace safety_controller
+namespace collision_controller
 {
-class SafetyController : public controller_interface::ChainableControllerInterface
+class CollisionController : public controller_interface::ChainableControllerInterface
 {
 public:
-  SafetyController();
+  CollisionController();
   controller_interface::CallbackReturn on_init() override;
   controller_interface::InterfaceConfiguration command_interface_configuration() const override;
   controller_interface::InterfaceConfiguration state_interface_configuration() const override;
@@ -83,10 +85,11 @@ public:
   using ControllerStateMsg = control_msgs::msg::MultiDOFStateStamped;
 
 protected:
-  std::shared_ptr<safety_controller::ParamListener> param_listener_;
-  safety_controller::Params params_;
+  std::shared_ptr<collision_controller::ParamListener> param_listener_;
+  collision_controller::Params params_;
 
   std::map<std::string, int> joint_id_;
+  std::map<std::string, int> joint_id_commanded_;
 
   // Command subscribers and Controller State publisher
   rclcpp::Subscription<ControllerReferenceMsg>::SharedPtr ref_subscriber_ = nullptr;
@@ -107,6 +110,7 @@ protected:
   // internal methods
   void update_parameters();
   controller_interface::CallbackReturn configure_parameters();
+  void send_goal();
 
 private:
   // callback for topic interface
@@ -131,6 +135,13 @@ private:
   std::string filename_srdf =
     "/home/user/pinocchio_ws/src/triago_moveit_config/config/triago.srdf";
 
+  bool collision_prev = false;
+
+  rclcpp_action::Client<change_controllers_interfaces::action::Switch>::SharedPtr
+    change_controller_client_;
+
+  void result_cb(
+    const rclcpp_action::ClientGoalHandle<change_controllers_interfaces::action::Switch>::WrappedResult & result);
 
 };
 

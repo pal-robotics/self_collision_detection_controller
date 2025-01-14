@@ -15,7 +15,7 @@
 // Authors: Daniel Azanov, Dr. Denis
 //
 
-#include "safety_controller/safety_controller.hpp"
+#include "collision_controller/collision_controller.hpp"
 
 #include <limits>
 #include <memory>
@@ -25,11 +25,19 @@
 #include "angles/angles.h"
 #include "control_msgs/msg/single_dof_state.hpp"
 #include "rclcpp/version.h"
+#include <pinocchio/parsers/urdf.hpp>
+#include <pinocchio/algorithm/compute-all-terms.hpp>
+#include <pinocchio/algorithm/model.hpp>
+#include <pinocchio/algorithm/joint-configuration.hpp>
+#include "pinocchio/parsers/urdf.hpp"
+#include "pinocchio/parsers/srdf.hpp"
+#include "change_controllers_interfaces/action/switch.hpp"
 
 namespace
 {
 
-using ControllerCommandMsg = safety_controller::SafetyController::ControllerReferenceMsg;
+
+using ControllerCommandMsg = collision_controller::CollisionController::ControllerReferenceMsg;
 // called from RT control loop
 void reset_controller_reference_msg(
   const std::shared_ptr<ControllerCommandMsg> & msg, const std::vector<std::string> & dof_names)
@@ -41,19 +49,19 @@ void reset_controller_reference_msg(
 }
 }  // namespace
 
-namespace safety_controller
+namespace collision_controller
 {
-SafetyController::SafetyController()
+CollisionController::CollisionController()
 : controller_interface::ChainableControllerInterface(),
   input_ref_(nullptr)
 {
 }
 
-controller_interface::CallbackReturn SafetyController::on_init()
+controller_interface::CallbackReturn CollisionController::on_init()
 {
 
   try {
-    param_listener_ = std::make_shared<safety_controller::ParamListener>(get_node());
+    param_listener_ = std::make_shared<collision_controller::ParamListener>(get_node());
     params_ = param_listener_->get_params();
   } catch (const std::exception & e) {
     fprintf(stderr, "Exception thrown during controller's init with message: %s \n", e.what());
@@ -63,7 +71,7 @@ controller_interface::CallbackReturn SafetyController::on_init()
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
-void SafetyController::update_parameters()
+void CollisionController::update_parameters()
 {
   if (!param_listener_->is_old(params_)) {
     return;
@@ -71,14 +79,14 @@ void SafetyController::update_parameters()
   params_ = param_listener_->get_params();
 }
 
-controller_interface::CallbackReturn SafetyController::on_cleanup(
+controller_interface::CallbackReturn CollisionController::on_cleanup(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
 
   return CallbackReturn::SUCCESS;
 }
 
-controller_interface::CallbackReturn SafetyController::on_configure(
+controller_interface::CallbackReturn CollisionController::on_configure(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
   if (!param_listener_) {
@@ -98,22 +106,28 @@ controller_interface::CallbackReturn SafetyController::on_configure(
     return controller_interface::CallbackReturn::ERROR;
   }
 
-  command_interfaces_.reserve(params_.joints.size());
+  command_interfaces_.reserve(params_.commanded_joints.size());
   state_interfaces_.reserve(params_.joints.size());
-  reference_interfaces_.resize(params_.joints.size());
+  reference_interfaces_.resize(params_.commanded_joints.size());
   current_position_.resize(params_.joints.size());
-  current_reference_.resize(params_.joints.size());
-  command_violated_.resize(params_.joints.size());
+  current_reference_.resize(params_.commanded_joints.size());
+  command_violated_.resize(params_.commanded_joints.size());
 
   // topics QoS
   auto subscribers_qos = rclcpp::SystemDefaultsQoS();
   subscribers_qos.keep_last(1);
   subscribers_qos.best_effort();
 
+  // Change controllers client
+  change_controller_client_ =
+    rclcpp_action::create_client<change_controllers_interfaces::action::Switch>(
+    this->get_node(),
+    "change_controllers");
+
   // Reference Subscriber
   ref_subscriber_ = get_node()->create_subscription<ControllerReferenceMsg>(
     "~/reference", subscribers_qos,
-    std::bind(&SafetyController::reference_callback, this, std::placeholders::_1));
+    std::bind(&CollisionController::reference_callback, this, std::placeholders::_1));
 
   try {
     // State publisher
@@ -156,6 +170,15 @@ controller_interface::CallbackReturn SafetyController::on_configure(
 
     joint_id_.insert(std::make_pair(joint, idx));
 
+    ++idx;
+  }
+
+  idx = 0;
+  for (const auto & joint : params_.commanded_joints) {
+    auto joint_name = joint;
+
+    joint_id_commanded_.insert(std::make_pair(joint, idx));
+
     if (!joint_limits::getSoftJointLimits(model.getJoint(joint_name), soft_limits[idx])) {
       RCLCPP_ERROR(get_node()->get_logger(), "Failed to get hard limits from URDF");
       return controller_interface::CallbackReturn::ERROR;
@@ -169,28 +192,73 @@ controller_interface::CallbackReturn SafetyController::on_configure(
     ++idx;
   }
 
-  RCLCPP_INFO(get_node()->get_logger(), "configure successful");
+
+  // Creating pinocchio model for collision handling
+
+  pinocchio::urdf::buildModelFromXML(
+    this->get_robot_description(),
+    pinocchio::JointModelFreeFlyer(), model_);
+
+
+  std::vector<pinocchio::JointIndex> joints_to_lock;
+  /*VMO: In this point we make a list of joints to remove from the model (in tiago case wheel joints and end effector joints)
+   These are actually the joints that we don't passs to the controller*/
+  for (auto & name : model_.names) {
+    if (name != "universe" && name != "root_joint" &&
+      std::find(
+        params_.joints.begin(), params_.joints.end(),
+        name) == params_.joints.end())
+    {
+      joints_to_lock.push_back(model_.getJointId(name));
+      RCLCPP_INFO(get_node()->get_logger(), "Lock joint %s: ", name.c_str());
+    }
+  }
+
+  /* Removing the unused joints from the model*/
+  model_ =
+    pinocchio::buildReducedModel(model_, joints_to_lock, pinocchio::neutral(model_));
+
+  data_ = pinocchio::Data(model_);
+  pinocchio::urdf::buildGeom(model_, filename, pinocchio::COLLISION, geom_model_);
+  geom_model_.addAllCollisionPairs();
+  pinocchio::srdf::removeCollisionPairs(model_, geom_model_, filename_srdf);
+
+  geom_data_ = pinocchio::GeometryData(geom_model_);
+
+
+  pinocchio::GeometryData::MatrixXs security_margin_map(pinocchio::GeometryData::MatrixXs::
+    Ones(
+      (Eigen::DenseIndex)geom_model_.ngeoms, (Eigen::DenseIndex)geom_model_.ngeoms));
+  security_margin_map.triangularView<Eigen::Upper>().fill(0.01);
+  security_margin_map.triangularView<Eigen::Lower>().fill(0.);
+
+  pinocchio::GeometryData::MatrixXs security_margin_map_upper(security_margin_map);
+  security_margin_map_upper.triangularView<Eigen::Lower>().fill(0.);
+
+  geom_data_.setSecurityMargins(geom_model_, security_margin_map, true, true);
+
+
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
-void SafetyController::reference_callback(const std::shared_ptr<ControllerReferenceMsg> msg)
+void CollisionController::reference_callback(const std::shared_ptr<ControllerReferenceMsg> msg)
 {
-  if (msg->dof_names.empty() && msg->values.size() == params_.joints.size()) {
+  if (msg->dof_names.empty() && msg->values.size() == params_.commanded_joints.size()) {
     RCLCPP_WARN(
       get_node()->get_logger(),
       "Reference massage does not have DoF names defined. "
       "Assuming that value have order as defined state DoFs");
     auto ref_msg = msg;
-    ref_msg->dof_names = params_.joints;
+    ref_msg->dof_names = params_.commanded_joints;
     input_ref_.writeFromNonRT(ref_msg);
   } else if (
-    msg->dof_names.size() == params_.joints.size() &&
+    msg->dof_names.size() == params_.commanded_joints.size() &&
     msg->values.size() == params_.joints.size())
   {
     auto ref_msg = msg;   // simple initialization
 
     // sort values in the ref_msg
-    reset_controller_reference_msg(msg, params_.joints);
+    reset_controller_reference_msg(msg, params_.commanded_joints);
 
     bool all_found = true;
     for (size_t i = 0; i < msg->dof_names.size(); ++i) {
@@ -214,27 +282,27 @@ void SafetyController::reference_callback(const std::shared_ptr<ControllerRefere
     RCLCPP_ERROR(
       get_node()->get_logger(),
       "Size of input data names (%zu) and/or values (%zu) is not matching the expected size (%zu).",
-      msg->dof_names.size(), msg->values.size(), params_.joints.size());
+      msg->dof_names.size(), msg->values.size(), params_.commanded_joints.size());
   }
 
 
 }
 
-controller_interface::InterfaceConfiguration SafetyController::command_interface_configuration()
+controller_interface::InterfaceConfiguration CollisionController::command_interface_configuration()
 const
 {
   controller_interface::InterfaceConfiguration command_interfaces_config;
   command_interfaces_config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
 
-  command_interfaces_config.names.reserve(params_.joints.size());
-  for (const auto & dof_name : params_.joints) {
+  command_interfaces_config.names.reserve(params_.commanded_joints.size());
+  for (const auto & dof_name : params_.commanded_joints) {
     command_interfaces_config.names.push_back(dof_name + "/" + params_.command_interface);
   }
 
   return command_interfaces_config;
 }
 
-controller_interface::InterfaceConfiguration SafetyController::state_interface_configuration()
+controller_interface::InterfaceConfiguration CollisionController::state_interface_configuration()
 const
 {
   controller_interface::InterfaceConfiguration state_interfaces_config;
@@ -250,7 +318,8 @@ const
   return state_interfaces_config;
 }
 
-std::vector<hardware_interface::CommandInterface> SafetyController::on_export_reference_interfaces()
+std::vector<hardware_interface::CommandInterface> CollisionController::
+on_export_reference_interfaces()
 {
   reference_interfaces_.resize(
     params_.joints.size(), std::numeric_limits<double>::quiet_NaN());
@@ -259,7 +328,7 @@ std::vector<hardware_interface::CommandInterface> SafetyController::on_export_re
   reference_interfaces.reserve(reference_interfaces_.size());
 
   size_t index = 0;
-  for (const auto & dof_name : params_.joints) {
+  for (const auto & dof_name : params_.commanded_joints) {
     reference_interfaces.push_back(
       hardware_interface::CommandInterface(
         get_node()->get_name(), dof_name + "/" + params_.command_interface,
@@ -271,7 +340,7 @@ std::vector<hardware_interface::CommandInterface> SafetyController::on_export_re
   return reference_interfaces;
 }
 
-std::vector<hardware_interface::StateInterface> SafetyController::on_export_state_interfaces()
+std::vector<hardware_interface::StateInterface> CollisionController::on_export_state_interfaces()
 {
   std::vector<hardware_interface::StateInterface> state_interfaces;
   state_interfaces.reserve(params_.joints.size());
@@ -291,152 +360,171 @@ std::vector<hardware_interface::StateInterface> SafetyController::on_export_stat
   return state_interfaces;
 }
 
-bool SafetyController::on_set_chained_mode(bool chained_mode)
+bool CollisionController::on_set_chained_mode(bool chained_mode)
 {
   // Always accept switch to/from chained mode
   return true || chained_mode;
 }
 
-controller_interface::CallbackReturn SafetyController::on_activate(
+controller_interface::CallbackReturn CollisionController::on_activate(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
   // Set default value in command (the same number as state interfaces)
   //reset_controller_reference_msg(*(input_ref_.readFromRT()), params_.joints);
 
+  // check if action server is available
+  if (!change_controller_client_->wait_for_action_server(std::chrono::seconds(1))) {
+    RCLCPP_ERROR(get_node()->get_logger(), "Change controller service is not available");
+    return controller_interface::CallbackReturn::ERROR;
+  }
+
 
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
-controller_interface::CallbackReturn SafetyController::on_deactivate(
+controller_interface::CallbackReturn CollisionController::on_deactivate(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
-controller_interface::return_type SafetyController::update_reference_from_subscribers(
+controller_interface::return_type CollisionController::update_reference_from_subscribers(
   const rclcpp::Time & /*time*/, const rclcpp::Duration & period)
 {
   auto current_ref = input_ref_.readFromRT();
 
 
-  for (size_t i = 0; i < params_.joints.size(); ++i) {
+  for (size_t i = 0; i < params_.commanded_joints.size(); ++i) {
     if (!std::isnan((*current_ref)->values[i])) {
       reference_interfaces_[i] = (*current_ref)->values[i];
 
       (*current_ref)->values[i] = std::numeric_limits<double>::quiet_NaN();
     }
   }
+
   return controller_interface::return_type::OK;
 }
 
-controller_interface::return_type SafetyController::update_and_write_commands(
+controller_interface::return_type CollisionController::update_and_write_commands(
   const rclcpp::Time & time, const rclcpp::Duration & period)
 {
   // check for any parameter updates
   update_parameters();
 
+  Eigen::VectorXd q = Eigen::VectorXd::Zero(params_.joints.size() + 7);
 
-  // no command received yet
-  std::vector<int> index_violated;
-  bool limit_violated = false;
+  q[6] = 1.0;
+  for (const auto & joint : params_.joints) {
+    q.tail(params_.joints.size())[model_.getJointId(joint) -
+      2] = state_interfaces_[joint_id_[joint]].get_value();
+  }
 
-
-  for (const auto joint: params_.joints) {
-    auto idx = joint_id_.at(joint);
-    current_position_[idx] = state_interfaces_[idx].get_value();
-    current_reference_[idx] = reference_interfaces_[idx];
-
+  /*for (const auto & joint: params_.commanded_joints) {
+    auto idx = joint_id_commanded_.at(joint);
     if (isnan(reference_interfaces_[idx])) {
       RCLCPP_WARN(
         get_node()->get_logger(), "Reference value for joint %s is NaN.", joint.c_str());
       return controller_interface::return_type::OK;
     }
+  }*/
 
-    // check if the reference is within the limits
-    auto pos = std::clamp(
-      current_reference_[idx], soft_limits[idx].min_position, soft_limits[idx].max_position);
-    if (pos != current_reference_[idx]) {
-      if (std::find(
-          index_violated_prev_.begin(), index_violated_prev_.end(),
-          idx) == index_violated_prev_.end())
-      {
-        RCLCPP_WARN(
-          get_node()->get_logger(), "Reference value for joint %s is out of soft limits.",
-          joint.c_str());
-        RCLCPP_WARN(
-          get_node()->get_logger(), "Reference value clamped to %f.",
-          pos);
-        index_violated_prev_.push_back(idx);
+
+  if (!collision_prev) {
+    collision_prev = pinocchio::computeCollisions(
+      model_, data_,
+      geom_model_, geom_data_, q, true);
+
+    //Checking if there is a collision
+    if (collision_prev) {
+
+      for (size_t k = 0; k < geom_model_.collisionPairs.size(); ++k) {
+        auto cp = geom_model_.collisionPairs[k];
+        const hpp::fcl::CollisionResult & cr = geom_data_.collisionResults[k];
+        if (cr.isCollision()) {
+
+          RCLCPP_WARN(
+            get_node()->get_logger(), "Collision detected, between %s and %s",
+            geom_model_.geometryObjects[cp.first].name.c_str(),
+            geom_model_.geometryObjects[cp.second].name.c_str());
+
+        }
+        for (const auto joint: params_.commanded_joints) {
+
+          auto idx = joint_id_commanded_.at(joint);
+          command_interfaces_[idx].set_value(state_interfaces_[joint_id_[joint]].get_value());
+        }
       }
-      // set the reference to the clamped value
-      limit_violated = true;
-      current_reference_[idx] = pos;
-      index_violated.push_back(idx);
 
-    }
-  }
+      send_goal();
 
-  // If the limit is not anymore violated, reset the flag
-  if (!limit_violated) {
-    if (limit_violated_prev_) {
-      RCLCPP_WARN(
-        get_node()->get_logger(), "Reference values have been brought back within the limits.");
-    }
-    limit_violated_prev_ = false;
-    index_violated_prev_.clear();
-  }
+      return controller_interface::return_type::OK;
 
-  // If the limit is still violated, set the command to the last valid value
-  if (limit_violated && limit_violated_prev_) {
-    for (const auto joint: params_.joints) {
-      auto idx = joint_id_.at(joint);
-      command_interfaces_[idx].set_value(command_violated_[idx]);
-    }
-  }
-  // If the limit is violated but it wasn't before, set the command to the current position
-  else if (limit_violated && !limit_violated_prev_) {
-    for (const auto joint: params_.joints) {
-      auto idx = joint_id_.at(joint);
-      if (std::find(index_violated.begin(), index_violated.end(), idx) == index_violated.end()) {
-        command_interfaces_[idx].set_value(current_position_[idx]);
-      } else {
-        // The joint violating the limits is set to the clamped reference
-        command_interfaces_[idx].set_value(current_reference_[idx]);
-      }
-      //Saving the commands for next iterations
-      command_violated_[idx] = command_interfaces_[idx].get_value();
-      limit_violated_prev_ = true;
+    } else {
+      return controller_interface::return_type::OK;
     }
   } else {
-    // If no limit is violated, set the command to the reference
-    for (const auto joint: params_.joints) {
 
-      auto idx = joint_id_.at(joint);
-      command_interfaces_[idx].set_value(current_reference_[idx]);
+    collision_prev = pinocchio::computeCollisions(
+      model_, data_,
+      geom_model_, geom_data_, q, true);
+
+    if (!collision_prev) {
+      RCLCPP_WARN(
+        get_node()->get_logger(),
+        "Collision has been resolved");
+      collision_prev = false;
     }
-  }
 
-  // Fill the information of the exported state interfaces
+    return controller_interface::return_type::OK;
 
-  if (state_publisher_ && state_publisher_->trylock()) {
-    state_publisher_->msg_.header.stamp = time;
-    for (size_t i = 0; i < params_.joints.size(); ++i) {
-      state_publisher_->msg_.dof_states[i].reference = reference_interfaces_[i];
-      state_publisher_->msg_.dof_states[i].feedback = current_position_[i];
-      state_publisher_->msg_.dof_states[i].time_step = period.seconds();
-      // Command can store the old calculated values. This should be obvious because at least one
-      // another value is NaN.
-      state_publisher_->msg_.dof_states[i].output = command_interfaces_[i].get_value();
-    }
-    state_publisher_->unlockAndPublish();
   }
 
   return controller_interface::return_type::OK;
 }
 
-}  // namespace safety_controller
+void CollisionController::send_goal()
+{
+  using namespace std::placeholders;
+
+  auto goal_msg = change_controllers_interfaces::action::Switch::Goal();
+  goal_msg.start_controllers = {"arm_right_controller"};
+  goal_msg.stop_controllers = {};
+  goal_msg.switch_controllers = true;
+  goal_msg.load = false;
+  goal_msg.unload = false;
+  goal_msg.configure = false;
+
+  RCLCPP_INFO(get_node()->get_logger(), "Sending goal to change controllers");
+
+  auto send_goal_options =
+    rclcpp_action::Client<change_controllers_interfaces::action::Switch>::SendGoalOptions();
+
+  send_goal_options.result_callback =
+    std::bind(&CollisionController::result_cb, this, _1);
+  change_controller_client_->async_send_goal(goal_msg, send_goal_options);
+}
+
+void CollisionController::result_cb(
+  const rclcpp_action::ClientGoalHandle<change_controllers_interfaces::action::Switch>::WrappedResult & result)
+{
+  switch (result.code) {
+    case rclcpp_action::ResultCode::SUCCEEDED:
+      return;
+    case rclcpp_action::ResultCode::ABORTED:
+      RCLCPP_ERROR(get_node()->get_logger(), "Change controllers: Aborted");
+      return;
+    case rclcpp_action::ResultCode::CANCELED:
+      RCLCPP_ERROR(get_node()->get_logger(), "Change controllers: Canceled");
+      return;
+    default:
+      RCLCPP_ERROR(get_node()->get_logger(), "Change controllers: Unknown result code");
+      return;
+  }
+}
+
+}   // namespace collision_controller
 
 #include "pluginlib/class_list_macros.hpp"
 
 PLUGINLIB_EXPORT_CLASS(
-  safety_controller::SafetyController, controller_interface::ChainableControllerInterface)
+  collision_controller::CollisionController, controller_interface::ChainableControllerInterface)

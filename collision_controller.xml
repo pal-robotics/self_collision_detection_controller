@@ -1,0 +1,8 @@
+<library path="collision_controller">
+  <class name="collision_controller/CollisionController"
+         type="collision_controller::CollisionController" base_class_type="controller_interface::ChainableControllerInterface">
+  <description>
+    PidController ros2_control controller.
+  </description>
+  </class>
+</library>

@@ -1,4 +1,4 @@
-safety_controller:
+collision_controller:
   joints: {
     type: string_array,
     default_value: [],
@@ -8,6 +8,13 @@ safety_controller:
       unique<>: null,
       not_empty<>: null,
     }
+  }
+
+  commanded_joints: {
+    type: string_array,
+    default_value: [],
+    description: "Joint names to command",
+    read_only: true,
   }
   
 
