@@ -130,10 +130,10 @@ private:
   pinocchio::GeometryData geom_data_;
 
   std::string filename =
-    "/home/user/pinocchio_ws/src/triago_robot/triago_description/robots/triago.urdf";
+    "/home/pal/deployed_ws/collision_controller/share/collision_controller/config/triago.urdf";
 
   std::string filename_srdf =
-    "/home/user/pinocchio_ws/src/triago_moveit_config/config/triago.srdf";
+    "/home/user/pinocchio_ws/src/collision_controller/config/triago.srdf";
 
   bool collision_prev = false;
 

@@ -32,6 +32,7 @@
 #include "pinocchio/parsers/urdf.hpp"
 #include "pinocchio/parsers/srdf.hpp"
 #include "change_controllers_interfaces/action/switch.hpp"
+#include <chrono>
 
 namespace
 {
@@ -219,7 +220,10 @@ controller_interface::CallbackReturn CollisionController::on_configure(
     pinocchio::buildReducedModel(model_, joints_to_lock, pinocchio::neutral(model_));
 
   data_ = pinocchio::Data(model_);
-  pinocchio::urdf::buildGeom(model_, filename, pinocchio::COLLISION, geom_model_);
+  std::istringstream ss(this->get_robot_description());
+  pinocchio::urdf::buildGeom(
+    model_,
+    ss, pinocchio::COLLISION, geom_model_);
   geom_model_.addAllCollisionPairs();
   pinocchio::srdf::removeCollisionPairs(model_, geom_model_, filename_srdf);
 
@@ -229,7 +233,7 @@ controller_interface::CallbackReturn CollisionController::on_configure(
   pinocchio::GeometryData::MatrixXs security_margin_map(pinocchio::GeometryData::MatrixXs::
     Ones(
       (Eigen::DenseIndex)geom_model_.ngeoms, (Eigen::DenseIndex)geom_model_.ngeoms));
-  security_margin_map.triangularView<Eigen::Upper>().fill(0.01);
+  security_margin_map.triangularView<Eigen::Upper>().fill(0.1);
   security_margin_map.triangularView<Eigen::Lower>().fill(0.);
 
   pinocchio::GeometryData::MatrixXs security_margin_map_upper(security_margin_map);
@@ -409,7 +413,8 @@ controller_interface::return_type CollisionController::update_and_write_commands
   const rclcpp::Time & time, const rclcpp::Duration & period)
 {
   // check for any parameter updates
-  update_parameters();
+  //update_parameters();
+  auto start = std::chrono::high_resolution_clock::now();
 
   Eigen::VectorXd q = Eigen::VectorXd::Zero(params_.joints.size() + 7);
 
@@ -418,6 +423,11 @@ controller_interface::return_type CollisionController::update_and_write_commands
     q.tail(params_.joints.size())[model_.getJointId(joint) -
       2] = state_interfaces_[joint_id_[joint]].get_value();
   }
+  //auto end = std::chrono::high_resolution_clock::now();
+
+  //auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+//  RCLCPP_INFO(get_node()->get_logger(), "Execution time: %ld microseconds", duration.count());
+
 
   /*for (const auto & joint: params_.commanded_joints) {
     auto idx = joint_id_commanded_.at(joint);
@@ -430,9 +440,14 @@ controller_interface::return_type CollisionController::update_and_write_commands
 
 
   if (!collision_prev) {
+
     collision_prev = pinocchio::computeCollisions(
       model_, data_,
       geom_model_, geom_data_, q, true);
+    // auto end = std::chrono::high_resolution_clock::now();
+
+    //auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+    //RCLCPP_INFO(get_node()->get_logger(), "Execution time: %ld microseconds", duration.count());
 
     //Checking if there is a collision
     if (collision_prev) {
@@ -457,16 +472,28 @@ controller_interface::return_type CollisionController::update_and_write_commands
 
       send_goal();
 
-      return controller_interface::return_type::OK;
 
-    } else {
-      return controller_interface::return_type::OK;
     }
   } else {
 
     collision_prev = pinocchio::computeCollisions(
       model_, data_,
       geom_model_, geom_data_, q, true);
+
+    for (size_t k = 0; k < geom_model_.collisionPairs.size(); ++k) {
+      auto cp = geom_model_.collisionPairs[k];
+      const hpp::fcl::CollisionResult & cr = geom_data_.collisionResults[k];
+
+      if (cr.isCollision()) {
+        RCLCPP_WARN_THROTTLE(
+          get_node()->get_logger(),
+          *get_node()->get_clock(),
+          1000,
+          "Collision detected, between %s and %s",
+          geom_model_.geometryObjects[cp.first].name.c_str(),
+          geom_model_.geometryObjects[cp.second].name.c_str());
+      }
+    }
 
     if (!collision_prev) {
       RCLCPP_WARN(
@@ -475,9 +502,13 @@ controller_interface::return_type CollisionController::update_and_write_commands
       collision_prev = false;
     }
 
-    return controller_interface::return_type::OK;
 
   }
+
+  // auto end = std::chrono::high_resolution_clock::now();
+
+  //auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+  //RCLCPP_INFO(get_node()->get_logger(), "Execution time: %ld microseconds", duration.count());
 
   return controller_interface::return_type::OK;
 }
@@ -487,14 +518,13 @@ void CollisionController::send_goal()
   using namespace std::placeholders;
 
   auto goal_msg = change_controllers_interfaces::action::Switch::Goal();
-  goal_msg.start_controllers = {"arm_right_controller"};
+  goal_msg.start_controllers = {"gravity_compensation_controller"};
   goal_msg.stop_controllers = {};
   goal_msg.switch_controllers = true;
   goal_msg.load = false;
   goal_msg.unload = false;
   goal_msg.configure = false;
 
-  RCLCPP_INFO(get_node()->get_logger(), "Sending goal to change controllers");
 
   auto send_goal_options =
     rclcpp_action::Client<change_controllers_interfaces::action::Switch>::SendGoalOptions();

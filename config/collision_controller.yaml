@@ -1,6 +1,7 @@
 collision_controller:
   ros__parameters:
     type: collision_controller/CollisionController
+    is_async: True
     joints:
       - arm_left_1_joint
       - arm_left_2_joint
