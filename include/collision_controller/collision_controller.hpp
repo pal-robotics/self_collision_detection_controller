@@ -26,6 +26,7 @@
 #include "control_msgs/msg/multi_dof_state_stamped.hpp"
 #include "controller_interface/chainable_controller_interface.hpp"
 #include "std_msgs/msg/float64.hpp"
+#include "std_msgs/msg/string.hpp"
 #include "collision_controller_parameters.hpp"
 #include "rclcpp_lifecycle/state.hpp"
 #include "realtime_tools/realtime_buffer.h"
@@ -81,6 +82,7 @@ public:
   controller_interface::return_type update_and_write_commands(
     const rclcpp::Time & time, const rclcpp::Duration & period) override;
 
+
   using ControllerReferenceMsg = control_msgs::msg::MultiDOFCommand;
   using ControllerStateMsg = control_msgs::msg::MultiDOFStateStamped;
 
@@ -98,6 +100,8 @@ protected:
   using ControllerStatePublisher = realtime_tools::RealtimePublisher<ControllerStateMsg>;
 
   rclcpp::Publisher<ControllerStateMsg>::SharedPtr s_publisher_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr robot_desc_sub_;
+
   std::unique_ptr<ControllerStatePublisher> state_publisher_;
 
   // override methods from ChainableControllerInterface
@@ -122,18 +126,14 @@ private:
   std::vector<double> index_violated_prev_;
   std::vector<double> current_position_, current_reference_;
   void reference_callback(const std::shared_ptr<ControllerReferenceMsg> msg);
-
+  rclcpp::Node::SharedPtr aux_node_ = nullptr;
   pinocchio::Model model_;
   pinocchio::GeometryModel geom_model_;
 
   pinocchio::Data data_;
   pinocchio::GeometryData geom_data_;
 
-  std::string filename =
-    "/home/pal/deployed_ws/collision_controller/share/collision_controller/config/triago.urdf";
-
-  std::string filename_srdf =
-    "/home/user/pinocchio_ws/src/collision_controller/config/triago.srdf";
+  std::string srdf_model;
 
   bool collision_prev = false;
 

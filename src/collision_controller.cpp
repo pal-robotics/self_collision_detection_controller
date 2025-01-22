@@ -25,6 +25,7 @@
 #include "angles/angles.h"
 #include "control_msgs/msg/single_dof_state.hpp"
 #include "rclcpp/version.h"
+#include "rclcpp/rclcpp.hpp"
 #include <pinocchio/parsers/urdf.hpp>
 #include <pinocchio/algorithm/compute-all-terms.hpp>
 #include <pinocchio/algorithm/model.hpp>
@@ -52,6 +53,9 @@ void reset_controller_reference_msg(
 
 namespace collision_controller
 {
+
+using std::placeholders::_1;
+
 CollisionController::CollisionController()
 : controller_interface::ChainableControllerInterface(),
   input_ref_(nullptr)
@@ -94,6 +98,7 @@ controller_interface::CallbackReturn CollisionController::on_configure(
     RCLCPP_ERROR(get_node()->get_logger(), "Error encountered during init");
     return controller_interface::CallbackReturn::ERROR;
   }
+
 
   update_parameters();
 
@@ -200,6 +205,24 @@ controller_interface::CallbackReturn CollisionController::on_configure(
     this->get_robot_description(),
     pinocchio::JointModelFreeFlyer(), model_);
 
+  aux_node_ = std::make_shared<rclcpp::Node>("aux_node");
+  robot_desc_sub_ = aux_node_->create_subscription<std_msgs::msg::String>(
+    "/robot_description_semantic", rclcpp::QoS(1).transient_local(),
+    [&](const std::shared_ptr<std_msgs::msg::String> msg) -> void
+    {
+      srdf_model = msg->data;
+      RCLCPP_INFO_ONCE(get_node()->get_logger(), "Received robot description");
+    });
+
+  while (srdf_model.empty()) {
+
+    rclcpp::spin_some(aux_node_);
+    std::this_thread::sleep_for(std::chrono_literals::operator""ms(100));
+    RCLCPP_INFO_THROTTLE(
+      get_node()->get_logger(),
+      *get_node()->get_clock(), 1000, "Waiting for the robot semantic description!");
+  }
+
 
   std::vector<pinocchio::JointIndex> joints_to_lock;
   /*VMO: In this point we make a list of joints to remove from the model (in tiago case wheel joints and end effector joints)
@@ -220,12 +243,17 @@ controller_interface::CallbackReturn CollisionController::on_configure(
     pinocchio::buildReducedModel(model_, joints_to_lock, pinocchio::neutral(model_));
 
   data_ = pinocchio::Data(model_);
+
+  // Taking current description of the robot
   std::istringstream ss(this->get_robot_description());
   pinocchio::urdf::buildGeom(
     model_,
     ss, pinocchio::COLLISION, geom_model_);
   geom_model_.addAllCollisionPairs();
-  pinocchio::srdf::removeCollisionPairs(model_, geom_model_, filename_srdf);
+
+  update_parameters();
+
+  pinocchio::srdf::removeCollisionPairsFromXML(model_, geom_model_, srdf_model);
 
   geom_data_ = pinocchio::GeometryData(geom_model_);
 
@@ -233,7 +261,7 @@ controller_interface::CallbackReturn CollisionController::on_configure(
   pinocchio::GeometryData::MatrixXs security_margin_map(pinocchio::GeometryData::MatrixXs::
     Ones(
       (Eigen::DenseIndex)geom_model_.ngeoms, (Eigen::DenseIndex)geom_model_.ngeoms));
-  security_margin_map.triangularView<Eigen::Upper>().fill(0.1);
+  security_margin_map.triangularView<Eigen::Upper>().fill(0.01);
   security_margin_map.triangularView<Eigen::Lower>().fill(0.);
 
   pinocchio::GeometryData::MatrixXs security_margin_map_upper(security_margin_map);
@@ -512,6 +540,7 @@ controller_interface::return_type CollisionController::update_and_write_commands
 
   return controller_interface::return_type::OK;
 }
+
 
 void CollisionController::send_goal()
 {
