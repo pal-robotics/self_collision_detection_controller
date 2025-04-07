@@ -112,7 +112,7 @@ controller_interface::CallbackReturn CollisionController::on_configure(
     return controller_interface::CallbackReturn::ERROR;
   }
 
-  command_interfaces_.reserve(params_.commanded_joints.size());
+  command_interfaces_.reserve(1);
   state_interfaces_.reserve(params_.joints.size());
   reference_interfaces_.resize(params_.commanded_joints.size());
   current_position_.resize(params_.joints.size());
@@ -261,7 +261,7 @@ controller_interface::CallbackReturn CollisionController::on_configure(
   pinocchio::GeometryData::MatrixXs security_margin_map(pinocchio::GeometryData::MatrixXs::
     Ones(
       (Eigen::DenseIndex)geom_model_.ngeoms, (Eigen::DenseIndex)geom_model_.ngeoms));
-  security_margin_map.triangularView<Eigen::Upper>().fill(0.01);
+  security_margin_map.triangularView<Eigen::Upper>().fill(0.05);
   security_margin_map.triangularView<Eigen::Lower>().fill(0.);
 
   pinocchio::GeometryData::MatrixXs security_margin_map_upper(security_margin_map);
@@ -328,7 +328,7 @@ const
 
   command_interfaces_config.names.reserve(params_.commanded_joints.size());
   for (const auto & dof_name : params_.commanded_joints) {
-    command_interfaces_config.names.push_back(dof_name + "/" + params_.command_interface);
+    command_interfaces_config.names.push_back("robot/is_in_collision");
   }
 
   return command_interfaces_config;
@@ -480,6 +480,8 @@ controller_interface::return_type CollisionController::update_and_write_commands
     //Checking if there is a collision
     if (collision_prev) {
 
+      command_interfaces_[0].set_value(1.0);
+
       for (size_t k = 0; k < geom_model_.collisionPairs.size(); ++k) {
         auto cp = geom_model_.collisionPairs[k];
         const hpp::fcl::CollisionResult & cr = geom_data_.collisionResults[k];
@@ -491,16 +493,10 @@ controller_interface::return_type CollisionController::update_and_write_commands
             geom_model_.geometryObjects[cp.second].name.c_str());
 
         }
-        for (const auto joint: params_.commanded_joints) {
-
-          auto idx = joint_id_commanded_.at(joint);
-          command_interfaces_[idx].set_value(state_interfaces_[joint_id_[joint]].get_value());
-        }
       }
+    } else if (!collision_prev) {
 
-      send_goal();
-
-
+      command_interfaces_[0].set_value(0.0);
     }
   } else {
 
@@ -508,22 +504,27 @@ controller_interface::return_type CollisionController::update_and_write_commands
       model_, data_,
       geom_model_, geom_data_, q, true);
 
-    for (size_t k = 0; k < geom_model_.collisionPairs.size(); ++k) {
-      auto cp = geom_model_.collisionPairs[k];
-      const hpp::fcl::CollisionResult & cr = geom_data_.collisionResults[k];
+    if (collision_prev) {
 
-      if (cr.isCollision()) {
-        RCLCPP_WARN_THROTTLE(
-          get_node()->get_logger(),
-          *get_node()->get_clock(),
-          1000,
-          "Collision detected, between %s and %s",
-          geom_model_.geometryObjects[cp.first].name.c_str(),
-          geom_model_.geometryObjects[cp.second].name.c_str());
+      command_interfaces_[0].set_value(1.0);
+      for (size_t k = 0; k < geom_model_.collisionPairs.size(); ++k) {
+        auto cp = geom_model_.collisionPairs[k];
+        const hpp::fcl::CollisionResult & cr = geom_data_.collisionResults[k];
+
+        if (cr.isCollision()) {
+          RCLCPP_WARN_THROTTLE(
+            get_node()->get_logger(),
+            *get_node()->get_clock(),
+            1000,
+            "Collision detected, between %s and %s",
+            geom_model_.geometryObjects[cp.first].name.c_str(),
+            geom_model_.geometryObjects[cp.second].name.c_str());
+        }
       }
-    }
+    } else if (!collision_prev) {
 
-    if (!collision_prev) {
+      command_interfaces_[0].set_value(0.0);
+
       RCLCPP_WARN(
         get_node()->get_logger(),
         "Collision has been resolved");
@@ -533,10 +534,10 @@ controller_interface::return_type CollisionController::update_and_write_commands
 
   }
 
-  // auto end = std::chrono::high_resolution_clock::now();
+  auto end = std::chrono::high_resolution_clock::now();
 
-  //auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-  //RCLCPP_INFO(get_node()->get_logger(), "Execution time: %ld microseconds", duration.count());
+  auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+  RCLCPP_INFO(get_node()->get_logger(), "Execution time: %ld microseconds", duration.count());
 
   return controller_interface::return_type::OK;
 }
