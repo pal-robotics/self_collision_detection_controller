@@ -326,7 +326,7 @@ const
   controller_interface::InterfaceConfiguration command_interfaces_config;
   command_interfaces_config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
 
-  command_interfaces_config.names.reserve(params_.commanded_joints.size());
+  command_interfaces_config.names.reserve(1);
   for (const auto & dof_name : params_.commanded_joints) {
     command_interfaces_config.names.push_back("robot/is_in_collision");
   }
@@ -353,23 +353,24 @@ const
 std::vector<hardware_interface::CommandInterface> CollisionController::
 on_export_reference_interfaces()
 {
-  reference_interfaces_.resize(
-    params_.joints.size(), std::numeric_limits<double>::quiet_NaN());
+  //reference_interfaces_.resize(
+  //  params_.joints.size(), std::numeric_limits<double>::quiet_NaN());
+//
+//std::vector<hardware_interface::CommandInterface> reference_interfaces;
+//reference_interfaces.reserve(reference_interfaces_.size());
+//
+//size_t index = 0;
+//for (const auto & dof_name : params_.commanded_joints) {
+//  reference_interfaces.push_back(
+//    hardware_interface::CommandInterface(
+//      get_node()->get_name(), dof_name + "/" + params_.command_interface,
+//      &reference_interfaces_[index]));
+//  ++index;
+//}
 
-  std::vector<hardware_interface::CommandInterface> reference_interfaces;
-  reference_interfaces.reserve(reference_interfaces_.size());
+  reference_interfaces_.clear();
 
-  size_t index = 0;
-  for (const auto & dof_name : params_.commanded_joints) {
-    reference_interfaces.push_back(
-      hardware_interface::CommandInterface(
-        get_node()->get_name(), dof_name + "/" + params_.command_interface,
-        &reference_interfaces_[index]));
-    ++index;
-  }
-
-
-  return reference_interfaces;
+  return {};
 }
 
 std::vector<hardware_interface::StateInterface> CollisionController::on_export_state_interfaces()
