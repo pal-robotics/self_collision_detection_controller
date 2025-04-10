@@ -5,7 +5,8 @@
   <version>0.0.1</version>
   <description>Controller for check collision.</description>
   <maintainer email="viviana.morlando@pal-robotics.com">Viviana Morlando</maintainer>
- 
+   <license>Propietary</license>
+
 
   <buildtool_depend>ament_cmake_auto</buildtool_depend>
   <buildtool_depend>eigen3_cmake_module</buildtool_depend>
