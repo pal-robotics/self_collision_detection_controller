@@ -7,10 +7,13 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 find_package(ament_cmake_auto REQUIRED)
+
+set(_Boost_PYTHON310_HEADERS "boost/python.hpp")
 ament_auto_find_build_dependencies()
 find_package(Eigen3 REQUIRED)
 find_package(pinocchio REQUIRED)
-
+find_package(visualization_msgs REQUIRED)
+find_package(moveit_msgs REQUIRED)
 generate_parameter_library(collision_controller_parameters
   src/collision_controller.yaml
 )
@@ -23,7 +26,6 @@ target_include_directories(collision_controller PUBLIC
   pinocchio::pinocchio
 )
 
-message (WARNING ${pinocchio_vendor_LIBRARIES})
 target_link_libraries(collision_controller 
   collision_controller_parameters 
   ${EIGEN3_LIBRARIES}

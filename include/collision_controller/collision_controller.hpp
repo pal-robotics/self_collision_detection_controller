@@ -26,10 +26,11 @@
 #include "control_msgs/msg/multi_dof_state_stamped.hpp"
 #include "controller_interface/chainable_controller_interface.hpp"
 #include "std_msgs/msg/float64.hpp"
-#include "collision_controller_parameters.hpp"
+#include "std_msgs/msg/string.hpp"
+#include "collision_controller/collision_controller_parameters.hpp"
 #include "rclcpp_lifecycle/state.hpp"
-#include "realtime_tools/realtime_buffer.h"
-#include "realtime_tools/realtime_publisher.h"
+#include <realtime_tools/realtime_buffer.hpp>
+#include <realtime_tools/realtime_publisher.hpp>
 #include "std_srvs/srv/set_bool.hpp"
 #include "controller_interface/helpers.hpp"
 #include "joint_limits/joint_limits.hpp"
@@ -51,6 +52,7 @@
 #include <pinocchio/collision/collision.hpp>
 #include <pinocchio/fwd.hpp>
 #include "pinocchio/parsers/srdf.hpp"
+#include <visualization_msgs/msg/marker.hpp>
 
 
 namespace collision_controller
@@ -81,6 +83,7 @@ public:
   controller_interface::return_type update_and_write_commands(
     const rclcpp::Time & time, const rclcpp::Duration & period) override;
 
+
   using ControllerReferenceMsg = control_msgs::msg::MultiDOFCommand;
   using ControllerStateMsg = control_msgs::msg::MultiDOFStateStamped;
 
@@ -98,6 +101,8 @@ protected:
   using ControllerStatePublisher = realtime_tools::RealtimePublisher<ControllerStateMsg>;
 
   rclcpp::Publisher<ControllerStateMsg>::SharedPtr s_publisher_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr robot_desc_sub_;
+
   std::unique_ptr<ControllerStatePublisher> state_publisher_;
 
   // override methods from ChainableControllerInterface
@@ -110,7 +115,13 @@ protected:
   // internal methods
   void update_parameters();
   controller_interface::CallbackReturn configure_parameters();
-  void send_goal();
+
+  void removeCollisionObjectsForLinks(const std::vector<std::string> & link_names);
+  void removeCollisionsAndAddSphere(
+    const std::vector<std::string> & to_remove_names, double radius, std::string base_link,
+    std::string name_collision);
+
+  void removeCollisionBetweenLinks(const std::string & link1, const std::string & link2);
 
 private:
   // callback for topic interface
@@ -122,27 +133,20 @@ private:
   std::vector<double> index_violated_prev_;
   std::vector<double> current_position_, current_reference_;
   void reference_callback(const std::shared_ptr<ControllerReferenceMsg> msg);
-
+  rclcpp::Node::SharedPtr aux_node_ = nullptr;
   pinocchio::Model model_;
   pinocchio::GeometryModel geom_model_;
 
   pinocchio::Data data_;
   pinocchio::GeometryData geom_data_;
-
-  std::string filename =
-    "/home/user/pinocchio_ws/src/triago_robot/triago_description/robots/triago.urdf";
-
-  std::string filename_srdf =
-    "/home/user/pinocchio_ws/src/triago_moveit_config/config/triago.srdf";
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr marker_pub_;
+  std::string srdf_model;
 
   bool collision_prev = false;
+  size_t collision_pair = 0;
 
   rclcpp_action::Client<change_controllers_interfaces::action::Switch>::SharedPtr
     change_controller_client_;
-
-  void result_cb(
-    const rclcpp_action::ClientGoalHandle<change_controllers_interfaces::action::Switch>::WrappedResult & result);
-
 };
 
 }

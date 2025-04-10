@@ -27,3 +27,10 @@ collision_controller:
       not_empty<>: null,
     }
   }
+
+  robot_collision_description: {
+    type: string,
+    default_value: "",
+    description: "Robot collision description",
+    read_only: false,
+  }

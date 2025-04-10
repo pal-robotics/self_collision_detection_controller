@@ -25,13 +25,17 @@
 #include "angles/angles.h"
 #include "control_msgs/msg/single_dof_state.hpp"
 #include "rclcpp/version.h"
+#include "rclcpp/rclcpp.hpp"
 #include <pinocchio/parsers/urdf.hpp>
 #include <pinocchio/algorithm/compute-all-terms.hpp>
 #include <pinocchio/algorithm/model.hpp>
 #include <pinocchio/algorithm/joint-configuration.hpp>
 #include "pinocchio/parsers/urdf.hpp"
 #include "pinocchio/parsers/srdf.hpp"
+#include <visualization_msgs/msg/marker.hpp>
+#include <moveit_msgs/msg/collision_object.hpp>
 #include "change_controllers_interfaces/action/switch.hpp"
+#include <chrono>
 
 namespace
 {
@@ -51,6 +55,9 @@ void reset_controller_reference_msg(
 
 namespace collision_controller
 {
+
+using std::placeholders::_1;
+
 CollisionController::CollisionController()
 : controller_interface::ChainableControllerInterface(),
   input_ref_(nullptr)
@@ -94,6 +101,7 @@ controller_interface::CallbackReturn CollisionController::on_configure(
     return controller_interface::CallbackReturn::ERROR;
   }
 
+
   update_parameters();
 
   if (params_.joints.empty()) {
@@ -106,7 +114,7 @@ controller_interface::CallbackReturn CollisionController::on_configure(
     return controller_interface::CallbackReturn::ERROR;
   }
 
-  command_interfaces_.reserve(params_.commanded_joints.size());
+  command_interfaces_.reserve(1);
   state_interfaces_.reserve(params_.joints.size());
   reference_interfaces_.resize(params_.commanded_joints.size());
   current_position_.resize(params_.joints.size());
@@ -199,6 +207,24 @@ controller_interface::CallbackReturn CollisionController::on_configure(
     this->get_robot_description(),
     pinocchio::JointModelFreeFlyer(), model_);
 
+  aux_node_ = std::make_shared<rclcpp::Node>("aux_node");
+  robot_desc_sub_ = aux_node_->create_subscription<std_msgs::msg::String>(
+    "/robot_description_semantic", rclcpp::QoS(1).transient_local(),
+    [&](const std::shared_ptr<std_msgs::msg::String> msg_semantic) -> void
+    {
+      srdf_model = msg_semantic->data;
+      RCLCPP_INFO_ONCE(get_node()->get_logger(), "Received robot description");
+    });
+
+  while (srdf_model.empty()) {
+
+    rclcpp::spin_some(aux_node_);
+    std::this_thread::sleep_for(std::chrono_literals::operator""ms(100));
+    RCLCPP_INFO_THROTTLE(
+      get_node()->get_logger(),
+      *get_node()->get_clock(), 1000, "Waiting for the robot semantic description!");
+  }
+
 
   std::vector<pinocchio::JointIndex> joints_to_lock;
   /*VMO: In this point we make a list of joints to remove from the model (in tiago case wheel joints and end effector joints)
@@ -219,23 +245,143 @@ controller_interface::CallbackReturn CollisionController::on_configure(
     pinocchio::buildReducedModel(model_, joints_to_lock, pinocchio::neutral(model_));
 
   data_ = pinocchio::Data(model_);
-  pinocchio::urdf::buildGeom(model_, filename, pinocchio::COLLISION, geom_model_);
+
+  // Taking current description of the robot
+  std::istringstream ss(this->get_robot_description());
+  pinocchio::urdf::buildGeom(
+    model_,
+    ss, pinocchio::COLLISION, geom_model_);
   geom_model_.addAllCollisionPairs();
-  pinocchio::srdf::removeCollisionPairs(model_, geom_model_, filename_srdf);
+
+  update_parameters();
+
+  pinocchio::srdf::removeCollisionPairsFromXML(model_, geom_model_, srdf_model);
 
   geom_data_ = pinocchio::GeometryData(geom_model_);
 
+  std::vector<std::string> to_remove_names = {
+    "base_front",
+    "base_rear",
+    "base_imu",
+    "base_link_1",
+    "base_link_2",
+    "base_antenna",
+    "base_dock",
+    "wheel",
+    "suspension",
+    "torso_head",
+    "torso_fixed"
+  };
+  removeCollisionObjectsForLinks(to_remove_names);
 
-  pinocchio::GeometryData::MatrixXs security_margin_map(pinocchio::GeometryData::MatrixXs::
-    Ones(
-      (Eigen::DenseIndex)geom_model_.ngeoms, (Eigen::DenseIndex)geom_model_.ngeoms));
-  security_margin_map.triangularView<Eigen::Upper>().fill(0.01);
-  security_margin_map.triangularView<Eigen::Lower>().fill(0.);
+  std::vector<std::string> gripper_head = {
+    "gripper_head"
+  };
+  removeCollisionsAndAddSphere(
+    gripper_head, 0.05, "gripper_head_camera_link", "gripper_head");
 
-  pinocchio::GeometryData::MatrixXs security_margin_map_upper(security_margin_map);
-  security_margin_map_upper.triangularView<Eigen::Lower>().fill(0.);
+  std::vector<std::string> gripper_left;
+  gripper_left.push_back("gripper_left");
+  removeCollisionsAndAddSphere(
+    gripper_left, 0.05, "gripper_left_palm_link", "gripper_left");
 
-  geom_data_.setSecurityMargins(geom_model_, security_margin_map, true, true);
+  std::vector<std::string> gripper_right;
+  gripper_right.push_back("gripper_right");
+  removeCollisionsAndAddSphere(
+    gripper_right, 0.05, "gripper_right_palm_link", "gripper_right");
+
+
+  geom_model_.collisionPairs.clear();
+
+  // Rebuild all valid collision pairs
+  geom_model_.addAllCollisionPairs();
+
+  pinocchio::srdf::removeCollisionPairsFromXML(model_, geom_model_, srdf_model);
+
+  removeCollisionBetweenLinks(
+    "gripper_head", "arm_head_6_link_0");
+
+  removeCollisionBetweenLinks(
+    "gripper_left", "arm_left_6_link_0");
+  removeCollisionBetweenLinks(
+    "gripper_right", "arm_right_6_link_0");
+
+  removeCollisionBetweenLinks(
+    "gripper_head", "arm_head_5_link_0");
+
+  removeCollisionBetweenLinks(
+    "gripper_left", "arm_left_5_link_0");
+  removeCollisionBetweenLinks(
+    "gripper_right", "arm_right_5_link_0");
+  geom_data_ = pinocchio::GeometryData(geom_model_);
+
+
+  for (std::size_t i = 0; i < geom_model_.collisionPairs.size(); ++i) {
+    const pinocchio::CollisionPair & pair = geom_model_.collisionPairs[i];
+
+    const std::string & name1 = geom_model_.geometryObjects[pair.first].name;
+    const std::string & name2 = geom_model_.geometryObjects[pair.second].name;
+
+    std::cout << "Pair " << i << ": " << name1 << " <--> " << name2 << std::endl;
+  }
+// Separate high-priority and low-priority pairs
+  std::vector<pinocchio::CollisionPair> high_priority_pairs;
+  std::vector<pinocchio::CollisionPair> low_priority_pairs;
+
+  for (const auto & pair : geom_model_.collisionPairs) {
+    const std::string & name1 = geom_model_.geometryObjects[pair.first].name;
+    const std::string & name2 = geom_model_.geometryObjects[pair.second].name;
+
+    if (name1.find("arm") != std::string::npos && name2.find("arm") != std::string::npos) {
+      high_priority_pairs.push_back(pair);
+    } else {
+      low_priority_pairs.push_back(pair);
+    }
+  }
+
+// Reassign the reordered vector back
+  geom_model_.collisionPairs.clear();
+  geom_model_.collisionPairs.insert(
+    geom_model_.collisionPairs.end(),
+    high_priority_pairs.begin(),
+    high_priority_pairs.end()
+  );
+  geom_model_.collisionPairs.insert(
+    geom_model_.collisionPairs.end(),
+    low_priority_pairs.begin(),
+    low_priority_pairs.end()
+  );
+
+  using MatrixXs = pinocchio::GeometryData::MatrixXs;
+
+// Initialize the default security margin map
+  MatrixXs security_margin_map = MatrixXs::Ones(
+    static_cast<Eigen::DenseIndex>(geom_model_.ngeoms),
+    static_cast<Eigen::DenseIndex>(geom_model_.ngeoms)
+  );
+
+// Fill with default margin
+  security_margin_map.triangularView<Eigen::Upper>().setConstant(0.01);
+  security_margin_map.triangularView<Eigen::Lower>().setZero();
+
+// Now override pairs where both geometry names contain "arm"
+  for (const auto & pair : geom_model_.collisionPairs) {
+    const auto & name1 = geom_model_.geometryObjects[pair.first].name;
+    const auto & name2 = geom_model_.geometryObjects[pair.second].name;
+
+    if (name1.find("arm") != std::string::npos && name2.find("arm") != std::string::npos) {
+      // Set higher margin for "arm"-"arm" pairs
+      security_margin_map(pair.first, pair.second) = 0.05;
+      // Optional: if symmetric margins are needed, set the reverse as well
+    }
+  }
+
+// Optionally make upper triangle only (depending on API needs)
+  MatrixXs security_margin_map_upper = security_margin_map;
+  security_margin_map_upper.triangularView<Eigen::Lower>().setZero();
+
+// Apply the security margins
+  geom_data_.setSecurityMargins(geom_model_, security_margin_map_upper, true, true);
 
 
   return controller_interface::CallbackReturn::SUCCESS;
@@ -294,10 +440,9 @@ const
   controller_interface::InterfaceConfiguration command_interfaces_config;
   command_interfaces_config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
 
-  command_interfaces_config.names.reserve(params_.commanded_joints.size());
-  for (const auto & dof_name : params_.commanded_joints) {
-    command_interfaces_config.names.push_back(dof_name + "/" + params_.command_interface);
-  }
+  command_interfaces_config.names.reserve(1);
+  command_interfaces_config.names.push_back("robot/is_in_collision");
+
 
   return command_interfaces_config;
 }
@@ -311,7 +456,7 @@ const
 
   state_interfaces_config.names.reserve(params_.joints.size());
   for (const auto & dof_name : params_.joints) {
-    state_interfaces_config.names.push_back(dof_name + "/position");
+    state_interfaces_config.names.push_back(dof_name + "/position"); // to change into absolute position
   }
 
 
@@ -321,23 +466,24 @@ const
 std::vector<hardware_interface::CommandInterface> CollisionController::
 on_export_reference_interfaces()
 {
-  reference_interfaces_.resize(
-    params_.joints.size(), std::numeric_limits<double>::quiet_NaN());
+  //reference_interfaces_.resize(
+  //  params_.joints.size(), std::numeric_limits<double>::quiet_NaN());
+//
+//std::vector<hardware_interface::CommandInterface> reference_interfaces;
+//reference_interfaces.reserve(reference_interfaces_.size());
+//
+//size_t index = 0;
+//for (const auto & dof_name : params_.commanded_joints) {
+//  reference_interfaces.push_back(
+//    hardware_interface::CommandInterface(
+//      get_node()->get_name(), dof_name + "/" + params_.command_interface,
+//      &reference_interfaces_[index]));
+//  ++index;
+//}
 
-  std::vector<hardware_interface::CommandInterface> reference_interfaces;
-  reference_interfaces.reserve(reference_interfaces_.size());
+  reference_interfaces_.clear();
 
-  size_t index = 0;
-  for (const auto & dof_name : params_.commanded_joints) {
-    reference_interfaces.push_back(
-      hardware_interface::CommandInterface(
-        get_node()->get_name(), dof_name + "/" + params_.command_interface,
-        &reference_interfaces_[index]));
-    ++index;
-  }
-
-
-  return reference_interfaces;
+  return {};
 }
 
 std::vector<hardware_interface::StateInterface> CollisionController::on_export_state_interfaces()
@@ -373,9 +519,14 @@ controller_interface::CallbackReturn CollisionController::on_activate(
   //reset_controller_reference_msg(*(input_ref_.readFromRT()), params_.joints);
 
   // check if action server is available
-  if (!change_controller_client_->wait_for_action_server(std::chrono::seconds(1))) {
-    RCLCPP_ERROR(get_node()->get_logger(), "Change controller service is not available");
-    return controller_interface::CallbackReturn::ERROR;
+
+
+  Eigen::VectorXd q = Eigen::VectorXd::Zero(params_.joints.size() + 7);
+
+  q[6] = 1.0;
+  for (const auto & joint : params_.joints) {
+    q.tail(params_.joints.size())[model_.getJointId(joint) -
+      2] = state_interfaces_[joint_id_[joint]].get_optional().value();
   }
 
 
@@ -389,137 +540,234 @@ controller_interface::CallbackReturn CollisionController::on_deactivate(
 }
 
 controller_interface::return_type CollisionController::update_reference_from_subscribers(
-  const rclcpp::Time & /*time*/, const rclcpp::Duration & period)
+  const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
 {
-  auto current_ref = input_ref_.readFromRT();
-
-
-  for (size_t i = 0; i < params_.commanded_joints.size(); ++i) {
-    if (!std::isnan((*current_ref)->values[i])) {
-      reference_interfaces_[i] = (*current_ref)->values[i];
-
-      (*current_ref)->values[i] = std::numeric_limits<double>::quiet_NaN();
-    }
-  }
 
   return controller_interface::return_type::OK;
 }
 
 controller_interface::return_type CollisionController::update_and_write_commands(
-  const rclcpp::Time & time, const rclcpp::Duration & period)
+  const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
 {
   // check for any parameter updates
-  update_parameters();
+  //update_parameters();
+  auto start = std::chrono::high_resolution_clock::now();
 
+// Build the configuration vector `q`
   Eigen::VectorXd q = Eigen::VectorXd::Zero(params_.joints.size() + 7);
-
   q[6] = 1.0;
+
   for (const auto & joint : params_.joints) {
-    q.tail(params_.joints.size())[model_.getJointId(joint) -
-      2] = state_interfaces_[joint_id_[joint]].get_value();
+    size_t idx = model_.getJointId(joint) - 2;
+    q.tail(params_.joints.size())[idx] = state_interfaces_[joint_id_[joint]].get_optional().value();
   }
 
-  /*for (const auto & joint: params_.commanded_joints) {
-    auto idx = joint_id_commanded_.at(joint);
-    if (isnan(reference_interfaces_[idx])) {
-      RCLCPP_WARN(
-        get_node()->get_logger(), "Reference value for joint %s is NaN.", joint.c_str());
-      return controller_interface::return_type::OK;
-    }
-  }*/
+  bool current_collision = false;
 
-
-  if (!collision_prev) {
-    collision_prev = pinocchio::computeCollisions(
-      model_, data_,
-      geom_model_, geom_data_, q, true);
-
-    //Checking if there is a collision
-    if (collision_prev) {
-
-      for (size_t k = 0; k < geom_model_.collisionPairs.size(); ++k) {
-        auto cp = geom_model_.collisionPairs[k];
-        const hpp::fcl::CollisionResult & cr = geom_data_.collisionResults[k];
-        if (cr.isCollision()) {
-
-          RCLCPP_WARN(
-            get_node()->get_logger(), "Collision detected, between %s and %s",
-            geom_model_.geometryObjects[cp.first].name.c_str(),
-            geom_model_.geometryObjects[cp.second].name.c_str());
-
-        }
-        for (const auto joint: params_.commanded_joints) {
-
-          auto idx = joint_id_commanded_.at(joint);
-          command_interfaces_[idx].set_value(state_interfaces_[joint_id_[joint]].get_value());
-        }
+// Fast path: reuse last known collision pair
+  if (collision_prev) {
+    const auto & cr = geom_data_.collisionResults[collision_pair];
+    if (cr.isCollision()) {
+      if (!command_interfaces_[0].set_value(1.0)) {
+        RCLCPP_ERROR(
+          get_node()->get_logger(),
+          "Failed to set command for robot_collision");
       }
-
-      send_goal();
-
+      auto end = std::chrono::high_resolution_clock::now();
+      auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
       return controller_interface::return_type::OK;
 
-    } else {
-      return controller_interface::return_type::OK;
+    }
+  }
+
+// Full collision check if no previous collision or collision cleared
+  current_collision = pinocchio::computeCollisions(model_, data_, geom_model_, geom_data_, q, true);
+
+  if (current_collision) {
+    if (!command_interfaces_[0].set_value(1.0)) {
+      RCLCPP_ERROR(
+        get_node()->get_logger(),
+        "Failed to set command for robot_collision");
+    }
+
+    for (size_t k = 0; k < geom_model_.collisionPairs.size(); ++k) {
+      const auto & cr = geom_data_.collisionResults[k];
+      if (cr.isCollision()) {
+        collision_pair = k;
+
+        const auto & cp = geom_model_.collisionPairs[k];
+        const auto & obj1 = geom_model_.geometryObjects[cp.first];
+        const auto & obj2 = geom_model_.geometryObjects[cp.second];
+
+        RCLCPP_WARN_THROTTLE(
+          get_node()->get_logger(),
+          *get_node()->get_clock(),
+          1000,
+          "Collision detected between %s and %s",
+          obj1.name.c_str(),
+          obj2.name.c_str());
+        return controller_interface::return_type::OK;
+      }
     }
   } else {
-
-    collision_prev = pinocchio::computeCollisions(
-      model_, data_,
-      geom_model_, geom_data_, q, true);
-
-    if (!collision_prev) {
-      RCLCPP_WARN(
-        get_node()->get_logger(),
-        "Collision has been resolved");
-      collision_prev = false;
+    if (collision_prev) {
+      RCLCPP_WARN(get_node()->get_logger(), "Collision has been resolved");
     }
-
-    return controller_interface::return_type::OK;
-
+    if (!command_interfaces_[0].set_value(0.0)) {
+      {
+        RCLCPP_ERROR(
+          get_node()->get_logger(),
+          "Failed to set command for robot_collision");
+      }
+    }
   }
+
+  collision_prev = current_collision;
+
+  auto end = std::chrono::high_resolution_clock::now();
+  auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+
+// Log performance only if no collision
+  if (!collision_prev) {
+    RCLCPP_INFO(get_node()->get_logger(), "Execution time: %ld microseconds", duration.count());
+  }
+
 
   return controller_interface::return_type::OK;
 }
 
-void CollisionController::send_goal()
+void CollisionController::removeCollisionObjectsForLinks(
+  const std::vector<std::string> & link_names)
 {
-  using namespace std::placeholders;
+  // Create a list to store the names of the geometries to remove
+  std::vector<std::string> to_remove;
 
-  auto goal_msg = change_controllers_interfaces::action::Switch::Goal();
-  goal_msg.start_controllers = {"arm_right_controller"};
-  goal_msg.stop_controllers = {};
-  goal_msg.switch_controllers = true;
-  goal_msg.load = false;
-  goal_msg.unload = false;
-  goal_msg.configure = false;
+  // Iterate through the geometry objects in the model
+  for (const auto & obj : geom_model_.geometryObjects) {
+    // Get the name of the parent joint for the current object
+    std::string parent_link_name = model_.names[obj.parentJoint];
 
-  RCLCPP_INFO(get_node()->get_logger(), "Sending goal to change controllers");
+    // Check if the parent link is in the list of links to remove
+    for (const auto & link_name : link_names) {
+      if (obj.name.rfind(link_name, 0) == 0) {
+        to_remove.push_back(obj.name);
+      }
+    }
+  }
 
-  auto send_goal_options =
-    rclcpp_action::Client<change_controllers_interfaces::action::Switch>::SendGoalOptions();
+  // Remove the selected geometries
+  for (const auto & name : to_remove) {
+    geom_model_.removeGeometryObject(name);
+  }
 
-  send_goal_options.result_callback =
-    std::bind(&CollisionController::result_cb, this, _1);
-  change_controller_client_->async_send_goal(goal_msg, send_goal_options);
+  // Clear any stale collision pairs and rebuild them
+  geom_model_.collisionPairs.clear();
+  geom_model_.addAllCollisionPairs();
 }
 
-void CollisionController::result_cb(
-  const rclcpp_action::ClientGoalHandle<change_controllers_interfaces::action::Switch>::WrappedResult & result)
+void CollisionController::removeCollisionsAndAddSphere(
+  const std::vector<std::string> & to_remove_names, double radius, std::string base_link,
+  std::string name_collision)
 {
-  switch (result.code) {
-    case rclcpp_action::ResultCode::SUCCEEDED:
-      return;
-    case rclcpp_action::ResultCode::ABORTED:
-      RCLCPP_ERROR(get_node()->get_logger(), "Change controllers: Aborted");
-      return;
-    case rclcpp_action::ResultCode::CANCELED:
-      RCLCPP_ERROR(get_node()->get_logger(), "Change controllers: Canceled");
-      return;
-    default:
-      RCLCPP_ERROR(get_node()->get_logger(), "Change controllers: Unknown result code");
-      return;
+  // Step 1: Prepare for the new collision sphere (initializing it as null)
+  std::shared_ptr<hpp::fcl::CollisionGeometry> new_sphere;
+
+  // Step 2: Loop over the list of geometry objects and remove those with matching names
+  std::vector<std::string> to_remove;
+  for (const auto & obj : geom_model_.geometryObjects) {
+    for (const auto & name : to_remove_names) {
+      if (obj.name.rfind(name, 0) == 0) {        // Matching name (starts with 'name')
+        to_remove.push_back(obj.name);
+      }
+    }
   }
+  pinocchio::JointIndex base_joint_id;
+
+
+  // Step 3: Position the new sphere based on the base link of the last removed object
+  if (!to_remove.empty()) {
+    // Get the last removed object (or the one you want to use for the new position)
+    const pinocchio::GeometryObject * last_removed_obj = nullptr;
+    for (const auto & obj : geom_model_.geometryObjects) {
+      if (obj.name.rfind(base_link, 0) == 0) {
+        last_removed_obj = &obj;
+        break;
+      }
+    }
+
+
+    const auto & last_placement = last_removed_obj->placement;
+    base_joint_id = last_removed_obj->parentJoint;
+    // The new sphere will be positioned based on the base link of the previous object
+    Eigen::Vector3d new_position = last_placement.translation();
+    new_position[2] += 0.04;      // Use the translation of the last removed object
+    Eigen::Quaterniond new_orientation = Eigen::Quaterniond::Identity();      // No rotation (default)
+
+    // Step 4: Create the new sphere geometry with the provided radius
+    new_sphere = std::make_shared<hpp::fcl::Sphere>(radius);
+
+    // Step 5: Define the transformation for the new sphere (position and orientation)
+    hpp::fcl::Transform3f tf;
+    tf.setIdentity();      // Initialize the transformation as identity
+    tf.translation() = new_position;   // Set the translation (position)
+    tf.rotation() = new_orientation;   // Set the rotation (orientation)
+
+    // Step 6: Create the collision object for the new sphere
+    hpp::fcl::CollisionObject sphere_coll_obj(new_sphere, tf);
+
+    // Optional: Compute the AABB for the new sphere (for collision detection optimization)
+    sphere_coll_obj.computeAABB();
+    hpp::fcl::AABB sphere_aabb = sphere_coll_obj.getAABB();
+    std::cout << "New Sphere AABB: min: " << sphere_aabb.min_.transpose() << ", max: " <<
+      sphere_aabb.max_.transpose() << std::endl;
+
+    // Step 7: Add the new sphere to the model
+    pinocchio::GeometryObject sphere_geom_obj(
+      name_collision,                // Name of the new object
+      base_joint_id,                        // Attach to a specific joint ID
+      new_sphere,                           // The sphere geometry
+      pinocchio::SE3(tf.rotation(), tf.translation())        // The transformation (position and orientation)
+    );
+
+    // Add the new geometry object to the model
+    geom_model_.addGeometryObject(sphere_geom_obj);
+
+    // Remove the identified objects from the model
+    for (const auto & name : to_remove) {
+      geom_model_.removeGeometryObject(name);
+    }
+
+    // Clear any stale collision pairs and rebuild the collision pairs
+    geom_model_.collisionPairs.clear();
+    geom_model_.addAllCollisionPairs();
+  }
+}
+
+void CollisionController::removeCollisionBetweenLinks(
+  const std::string & link1,
+  const std::string & link2)
+{
+  // Iterate through the collision pairs
+  for (auto it = geom_model_.collisionPairs.begin(); it != geom_model_.collisionPairs.end();
+    ++it)
+  {
+    const auto & pair = *it;
+
+    // Retrieve geometry names based on the IDs or references (assuming IDs are used)
+    std::string name1 = geom_model_.geometryObjects[pair.first].name;     // Add appropriate method to get name by ID
+    std::string name2 = geom_model_.geometryObjects[pair.second].name;   // Add appropriate method to get name by ID
+
+    // Check if the names match the given link names
+    if ((name1 == link1 && name2 == link2) || (name1 == link2 && name2 == link1)) {
+      std::cout << "Removing collision pair: " << name1 << " <-> " << name2 << std::endl;
+      geom_model_.collisionPairs.erase(it);
+      return;        // We can return early since we've removed the pair
+    }
+  }
+
+
+  // If we reach here, the collision pair wasn't found
+  std::cout << "Collision pair not found: " << link1 << " <-> " << link2 << std::endl;
 }
 
 }   // namespace collision_controller
