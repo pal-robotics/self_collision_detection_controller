@@ -26,7 +26,6 @@ target_include_directories(collision_controller PUBLIC
   pinocchio::pinocchio
 )
 
-message (WARNING ${pinocchio_vendor_LIBRARIES})
 target_link_libraries(collision_controller 
   collision_controller_parameters 
   ${EIGEN3_LIBRARIES}
