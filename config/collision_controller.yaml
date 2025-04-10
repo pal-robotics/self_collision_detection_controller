@@ -1,6 +1,7 @@
 collision_controller:
   ros__parameters:
     type: collision_controller/CollisionController
+    update_rate: 1000
     is_async: True
     joints:
       - arm_left_1_joint
@@ -17,12 +18,5 @@ collision_controller:
       - arm_right_5_joint
       - arm_right_6_joint
       - arm_right_7_joint
-      - arm_head_1_joint
-      - arm_head_2_joint
-      - arm_head_3_joint
-      - arm_head_4_joint
-      - arm_head_5_joint
-      - arm_head_6_joint
-      - arm_head_7_joint
       - torso_lift_joint
     command_interface: position

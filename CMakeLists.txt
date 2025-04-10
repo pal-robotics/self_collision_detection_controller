@@ -10,7 +10,8 @@ find_package(ament_cmake_auto REQUIRED)
 ament_auto_find_build_dependencies()
 find_package(Eigen3 REQUIRED)
 find_package(pinocchio REQUIRED)
-
+find_package(visualization_msgs REQUIRED)
+find_package(moveit_msgs REQUIRED)
 generate_parameter_library(collision_controller_parameters
   src/collision_controller.yaml
 )

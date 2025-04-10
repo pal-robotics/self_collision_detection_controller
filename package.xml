@@ -32,6 +32,8 @@
   <depend>change_controllers</depend>
   <depend>change_controllers_interfaces</depend>
   <depend>rclcpp_action</depend>
+  <depend>visualization_msgs</depend>
+  <depend>moveit_msgs</depend>
 
   <test_depend>ament_cmake_gmock</test_depend>
   <test_depend>controller_manager</test_depend>

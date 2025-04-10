@@ -27,10 +27,10 @@
 #include "controller_interface/chainable_controller_interface.hpp"
 #include "std_msgs/msg/float64.hpp"
 #include "std_msgs/msg/string.hpp"
-#include "collision_controller_parameters.hpp"
+#include "collision_controller/collision_controller_parameters.hpp"
 #include "rclcpp_lifecycle/state.hpp"
-#include "realtime_tools/realtime_buffer.h"
-#include "realtime_tools/realtime_publisher.h"
+#include <realtime_tools/realtime_buffer.hpp>
+#include <realtime_tools/realtime_publisher.hpp>
 #include "std_srvs/srv/set_bool.hpp"
 #include "controller_interface/helpers.hpp"
 #include "joint_limits/joint_limits.hpp"
@@ -52,6 +52,7 @@
 #include <pinocchio/collision/collision.hpp>
 #include <pinocchio/fwd.hpp>
 #include "pinocchio/parsers/srdf.hpp"
+#include <visualization_msgs/msg/marker.hpp>
 
 
 namespace collision_controller
@@ -114,7 +115,13 @@ protected:
   // internal methods
   void update_parameters();
   controller_interface::CallbackReturn configure_parameters();
-  void send_goal();
+
+  void removeCollisionObjectsForLinks(const std::vector<std::string> & link_names);
+  void removeCollisionsAndAddSphere(
+    const std::vector<std::string> & to_remove_names, double radius, std::string base_link,
+    std::string name_collision);
+
+  void removeCollisionBetweenLinks(const std::string & link1, const std::string & link2);
 
 private:
   // callback for topic interface
@@ -132,17 +139,14 @@ private:
 
   pinocchio::Data data_;
   pinocchio::GeometryData geom_data_;
-
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr marker_pub_;
   std::string srdf_model;
 
   bool collision_prev = false;
+  size_t collision_pair = 0;
 
   rclcpp_action::Client<change_controllers_interfaces::action::Switch>::SharedPtr
     change_controller_client_;
-
-  void result_cb(
-    const rclcpp_action::ClientGoalHandle<change_controllers_interfaces::action::Switch>::WrappedResult & result);
-
 };
 
 }
