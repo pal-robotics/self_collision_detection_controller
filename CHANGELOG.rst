@@ -2,8 +2,8 @@
 Changelog for package collision_controller
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Forthcoming
------------
+0.0.2 (2025-04-11)
+------------------
 * Merge branch 'vmo/fix' into 'main'
   Vmo/fix
   See merge request control/collision_controller!1
