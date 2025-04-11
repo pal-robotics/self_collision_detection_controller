@@ -278,17 +278,17 @@ controller_interface::CallbackReturn CollisionController::on_configure(
     "gripper_head"
   };
   removeCollisionsAndAddSphere(
-    gripper_head, 0.05, "gripper_head_camera_link", "gripper_head");
+    gripper_head, 0.05, "gripper_head");
 
   std::vector<std::string> gripper_left;
   gripper_left.push_back("gripper_left");
   removeCollisionsAndAddSphere(
-    gripper_left, 0.05, "gripper_left_palm_link", "gripper_left");
+    gripper_left, 0.05, "gripper_left");
 
   std::vector<std::string> gripper_right;
   gripper_right.push_back("gripper_right");
   removeCollisionsAndAddSphere(
-    gripper_right, 0.05, "gripper_right_palm_link", "gripper_right");
+    gripper_right, 0.05, "gripper_right");
 
 
   geom_model_.collisionPairs.clear();
@@ -371,7 +371,7 @@ controller_interface::CallbackReturn CollisionController::on_configure(
 
     if (name1.find("arm") != std::string::npos && name2.find("arm") != std::string::npos) {
       // Set higher margin for "arm"-"arm" pairs
-      security_margin_map(pair.first, pair.second) = 0.05;
+      security_margin_map(pair.first, pair.second) = 0.025;
       // Optional: if symmetric margins are needed, set the reverse as well
     }
   }
@@ -441,7 +441,7 @@ const
   command_interfaces_config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
 
   command_interfaces_config.names.reserve(1);
-  command_interfaces_config.names.push_back("robot/is_in_collision");
+  command_interfaces_config.names.push_back("arm_head_1_joint/position");
 
 
   return command_interfaces_config;
@@ -666,28 +666,40 @@ void CollisionController::removeCollisionObjectsForLinks(
 }
 
 void CollisionController::removeCollisionsAndAddSphere(
-  const std::vector<std::string> & to_remove_names, double radius, std::string base_link,
+  const std::vector<std::string> & to_remove_names, double radius,
   std::string name_collision)
 {
   // Step 1: Prepare for the new collision sphere (initializing it as null)
   std::shared_ptr<hpp::fcl::CollisionGeometry> new_sphere;
+  std::cout << " PArent joint name: " << std::endl;
 
   // Step 2: Loop over the list of geometry objects and remove those with matching names
+  std::vector<pinocchio::GeometryObject> collisionObjects;
   std::vector<std::string> to_remove;
+  std::string base_link;
   for (const auto & obj : geom_model_.geometryObjects) {
     for (const auto & name : to_remove_names) {
       if (obj.name.rfind(name, 0) == 0) {        // Matching name (starts with 'name')
+        collisionObjects.push_back(obj);
         to_remove.push_back(obj.name);
       }
     }
   }
   pinocchio::JointIndex base_joint_id;
+  const pinocchio::GeometryObject * last_removed_obj = nullptr;
 
-
-  // Step 3: Position the new sphere based on the base link of the last removed object
-  if (!to_remove.empty()) {
-    // Get the last removed object (or the one you want to use for the new position)
+  if (!collisionObjects.empty()) {
     const pinocchio::GeometryObject * last_removed_obj = nullptr;
+    auto joint_id = collisionObjects[0].parentJoint;
+    for (const auto & frame : model_.frames) {
+      if (frame.parent == joint_id && frame.type == pinocchio::FrameType::BODY) {
+        base_link = frame.name;
+        break;
+      }
+    }
+    std::cout << " PArent joint name: " << base_link << std::endl;
+
+    // Find the base link object
     for (const auto & obj : geom_model_.geometryObjects) {
       if (obj.name.rfind(base_link, 0) == 0) {
         last_removed_obj = &obj;
@@ -695,6 +707,10 @@ void CollisionController::removeCollisionsAndAddSphere(
       }
     }
 
+    std::cout << " PArent joint name: " << last_removed_obj->name << std::endl;
+
+
+    // Step 3: Position the new sphere based on the base link
 
     const auto & last_placement = last_removed_obj->placement;
     base_joint_id = last_removed_obj->parentJoint;
@@ -741,6 +757,8 @@ void CollisionController::removeCollisionsAndAddSphere(
     geom_model_.collisionPairs.clear();
     geom_model_.addAllCollisionPairs();
   }
+  std::cout << " PArent joint name: exit " << std::endl;
+
 }
 
 void CollisionController::removeCollisionBetweenLinks(

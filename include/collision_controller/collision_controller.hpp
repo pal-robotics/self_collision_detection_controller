@@ -118,7 +118,7 @@ protected:
 
   void removeCollisionObjectsForLinks(const std::vector<std::string> & link_names);
   void removeCollisionsAndAddSphere(
-    const std::vector<std::string> & to_remove_names, double radius, std::string base_link,
+    const std::vector<std::string> & to_remove_names, double radius,
     std::string name_collision);
 
   void removeCollisionBetweenLinks(const std::string & link1, const std::string & link2);
