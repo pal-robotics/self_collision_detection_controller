@@ -686,7 +686,6 @@ void CollisionController::removeCollisionsAndAddSphere(
     }
   }
   pinocchio::JointIndex base_joint_id;
-  const pinocchio::GeometryObject * last_removed_obj = nullptr;
 
   if (!collisionObjects.empty()) {
     const pinocchio::GeometryObject * last_removed_obj = nullptr;
@@ -697,7 +696,6 @@ void CollisionController::removeCollisionsAndAddSphere(
         break;
       }
     }
-    std::cout << " PArent joint name: " << base_link << std::endl;
 
     // Find the base link object
     for (const auto & obj : geom_model_.geometryObjects) {
@@ -706,8 +704,6 @@ void CollisionController::removeCollisionsAndAddSphere(
         break;
       }
     }
-
-    std::cout << " PArent joint name: " << last_removed_obj->name << std::endl;
 
 
     // Step 3: Position the new sphere based on the base link
@@ -757,7 +753,6 @@ void CollisionController::removeCollisionsAndAddSphere(
     geom_model_.collisionPairs.clear();
     geom_model_.addAllCollisionPairs();
   }
-  std::cout << " PArent joint name: exit " << std::endl;
 
 }
 
