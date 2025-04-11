@@ -441,7 +441,7 @@ const
   command_interfaces_config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
 
   command_interfaces_config.names.reserve(1);
-  command_interfaces_config.names.push_back("arm_head_1_joint/position");
+  command_interfaces_config.names.push_back("robot/is_in_collision");
 
 
   return command_interfaces_config;
