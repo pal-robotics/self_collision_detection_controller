@@ -2,8 +2,8 @@
 Changelog for package collision_controller
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Forthcoming
------------
+0.0.3 (2025-04-11)
+------------------
 * Merge branch 'vmo/fix_gripper_detection' into 'main'
   Vmo/fix gripper detection
   See merge request control/collision_controller!2
