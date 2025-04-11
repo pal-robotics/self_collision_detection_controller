@@ -2,6 +2,16 @@
 Changelog for package collision_controller
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+Forthcoming
+-----------
+* Merge branch 'vmo/fix_gripper_detection' into 'main'
+  Vmo/fix gripper detection
+  See merge request control/collision_controller!2
+* Fix pipeline
+* Adding robot interface
+* Adding detection of gripper
+* Contributors: vivianamorlando
+
 0.0.2 (2025-04-11)
 ------------------
 * Merge branch 'vmo/fix' into 'main'
