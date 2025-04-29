@@ -1,4 +1,4 @@
-// Copyright (c) 2023, Stogl Robotics Consulting UG (haftungsbeschränkt)
+// Copyright (c) 2024 PAL Robotics S.L. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -11,10 +11,6 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-//
-// Authors: Daniel Azanov, Dr. Denis
-//
-
 #include "collision_controller/collision_controller.hpp"
 
 #include <limits>
@@ -626,11 +622,6 @@ controller_interface::return_type CollisionController::update_and_write_commands
 
   auto end = std::chrono::high_resolution_clock::now();
   auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-
-// Log performance only if no collision
-  if (!collision_prev) {
-    RCLCPP_INFO(get_node()->get_logger(), "Execution time: %ld microseconds", duration.count());
-  }
 
 
   return controller_interface::return_type::OK;
