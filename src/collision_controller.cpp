@@ -133,6 +133,8 @@ controller_interface::CallbackReturn CollisionController::on_configure(
     "~/reference", subscribers_qos,
     std::bind(&CollisionController::reference_callback, this, std::placeholders::_1));
 
+  marker_pub_ =
+    get_node()->create_publisher<visualization_msgs::msg::Marker>("collision_meshes", 10);
   try {
     // State publisher
     s_publisher_ = get_node()->create_publisher<ControllerStateMsg>(

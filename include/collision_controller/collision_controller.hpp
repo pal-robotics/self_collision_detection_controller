@@ -107,6 +107,9 @@ protected:
 
   std::vector<hardware_interface::StateInterface> on_export_state_interfaces() override;
 
+  void publish_collision_meshes();
+
+
   bool on_set_chained_mode(bool chained_mode) override;
 
   // internal methods
