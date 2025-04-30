@@ -620,6 +620,9 @@ controller_interface::return_type CollisionController::update_and_write_commands
     }
   }
 
+  publish_collision_meshes();
+
+
   collision_prev = current_collision;
 
   auto end = std::chrono::high_resolution_clock::now();
@@ -775,6 +778,65 @@ void CollisionController::removeCollisionBetweenLinks(
   // If we reach here, the collision pair wasn't found
   std::cout << "Collision pair not found: " << link1 << " <-> " << link2 << std::endl;
 }
+
+void CollisionController::publish_collision_meshes()
+{
+  visualization_msgs::msg::Marker marker;
+  int id = 0;
+
+  for (const auto & obj : geom_model_.geometryObjects) {
+
+    marker.header.frame_id = "base_link";  // Update to your robot's base frame
+    marker.header.stamp = get_node()->now();
+    marker.ns = "collision_mesh";
+    marker.id = id++;
+    marker.type = visualization_msgs::msg::Marker::SPHERE;
+    marker.action = visualization_msgs::msg::Marker::ADD;
+
+    // retrieve oMg vector from geom_data, to take the current position of the object
+    const auto & oMg = geom_data_.oMg[obj.parentJoint];
+    // retrieve the placement of the object
+    const auto & placement = oMg * obj.placement;
+
+    //Stream the name of the object
+    RCLCPP_INFO(
+      get_node()->get_logger(), "Object name: %s", obj.name.c_str());
+
+    // PRint placement of object
+    RCLCPP_INFO(
+      get_node()->get_logger(), "Object placement: %f, %f, %f",
+      placement.translation()[0],
+      placement.translation()[1],
+      placement.translation()[2]);
+
+
+    marker.pose.position.x = placement.translation()[0];
+    marker.pose.position.y = placement.translation()[1];
+    marker.pose.position.z = placement.translation()[2];
+
+    Eigen::Quaterniond q(placement.rotation());
+    marker.pose.orientation.x = q.x();
+    marker.pose.orientation.y = q.y();
+    marker.pose.orientation.z = q.z();
+    marker.pose.orientation.w = q.w();
+
+    // setting radius for the marker
+    marker.scale.x = 0.1;  // Set the radius for the marker
+    marker.scale.y = 0.1;
+    marker.scale.z = 0.1;
+
+    marker.color.r = 1.0f;
+    marker.color.g = 0.0f;
+    marker.color.b = 0.0f;
+    marker.color.a = 0.6f;
+
+    marker.lifetime = rclcpp::Duration(300, 0);
+
+    marker_pub_->publish(marker);
+
+  }
+}
+
 
 }   // namespace collision_controller
 
