@@ -786,6 +786,15 @@ void CollisionController::publish_collision_meshes()
 
   for (const auto & obj : geom_model_.geometryObjects) {
 
+    const auto & aabb = obj.geometry->aabb_local;
+    const double dx = aabb.max_.x() - aabb.min_.x();
+    const double dy = aabb.max_.y() - aabb.min_.y();
+    const double dz = aabb.max_.z() - aabb.min_.z();
+
+// Diameter of a bounding sphere
+    const double diameter = std::sqrt(dx * dx + dy * dy + dz * dz);
+
+    std::cout << "diameter: " << diameter << std::endl;
     marker.header.frame_id = "base_link";  // Update to your robot's base frame
     marker.header.stamp = get_node()->now();
     marker.ns = "collision_mesh";
@@ -821,9 +830,9 @@ void CollisionController::publish_collision_meshes()
     marker.pose.orientation.w = q.w();
 
     // setting radius for the marker
-    marker.scale.x = 0.1;  // Set the radius for the marker
-    marker.scale.y = 0.1;
-    marker.scale.z = 0.1;
+    marker.scale.x = diameter;
+    marker.scale.y = diameter;
+    marker.scale.z = diameter;
 
     marker.color.r = 1.0f;
     marker.color.g = 0.0f;
