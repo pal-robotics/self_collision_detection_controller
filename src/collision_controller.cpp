@@ -839,7 +839,7 @@ void CollisionController::publish_collision_meshes()
     marker.color.b = 0.0f;
     marker.color.a = 0.6f;
 
-    marker.lifetime = rclcpp::Duration(300, 0);
+    marker.lifetime = rclcpp::Duration(0, 0);
 
     marker_pub_->publish(marker);
 
