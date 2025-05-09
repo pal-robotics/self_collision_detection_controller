@@ -665,19 +665,31 @@ void CollisionController::removeCollisionsAndAddSphere(
   const std::vector<std::string> & to_remove_names, double radius,
   std::string name_collision)
 {
+  // Step 1: Compute the bounding box that encompasses all the objects in `to_remove_names`
+  Eigen::Vector3d min_corner = Eigen::Vector3d::Constant(std::numeric_limits<double>::max());
+  Eigen::Vector3d max_corner = Eigen::Vector3d::Constant(std::numeric_limits<double>::lowest());
+
+
   // Step 1: Prepare for the new collision sphere (initializing it as null)
   std::shared_ptr<hpp::fcl::CollisionGeometry> new_sphere;
-  std::cout << " PArent joint name: " << std::endl;
 
   // Step 2: Loop over the list of geometry objects and remove those with matching names
   std::vector<pinocchio::GeometryObject> collisionObjects;
   std::vector<std::string> to_remove;
   std::string base_link;
+  std::vector<Eigen::Vector3d> positions;
+
   for (const auto & obj : geom_model_.geometryObjects) {
     for (const auto & name : to_remove_names) {
       if (obj.name.rfind(name, 0) == 0) {        // Matching name (starts with 'name')
         collisionObjects.push_back(obj);
         to_remove.push_back(obj.name);
+        // Store the position of the object to be removed
+        positions.push_back(obj.placement.translation());
+        const auto & global_position = data_.oMi[obj.parentJoint].act(obj.placement).translation();
+        min_corner = min_corner.cwiseMin(global_position);
+        max_corner = max_corner.cwiseMax(global_position);
+
       }
     }
   }
@@ -691,6 +703,14 @@ void CollisionController::removeCollisionsAndAddSphere(
         base_link = frame.name;
         break;
       }
+    }
+
+    for (auto obj : collisionObjects) {
+      // Transform the position to the base link frame using the base link's placement
+      const auto & base_link_transform = data_.oMi[model_.getJointId(base_link)];
+      const auto & global_position =
+        base_link_transform.act(data_.oMi[obj.parentJoint].act(obj.placement)).translation();
+      positions.push_back(global_position);
     }
 
     // Find the base link object
