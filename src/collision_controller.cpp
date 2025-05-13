@@ -571,6 +571,11 @@ controller_interface::return_type CollisionController::update_and_write_commands
           get_node()->get_logger(),
           "Failed to set command for robot_collision");
       }
+
+      pinocchio::updateGeometryPlacements(model_, data_, geom_model_, geom_data_, q);
+      pinocchio::computeAllTerms(model_, data_, q, Eigen::VectorXd::Zero(model_.nv));
+      publish_collision_meshes();
+
       auto end = std::chrono::high_resolution_clock::now();
       auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
       return controller_interface::return_type::OK;
@@ -588,6 +593,12 @@ controller_interface::return_type CollisionController::update_and_write_commands
         "Failed to set command for robot_collision");
     }
 
+
+    pinocchio::updateGeometryPlacements(model_, data_, geom_model_, geom_data_, q);
+    pinocchio::computeAllTerms(model_, data_, q, Eigen::VectorXd::Zero(model_.nv));
+    publish_collision_meshes();
+
+
     for (size_t k = 0; k < geom_model_.collisionPairs.size(); ++k) {
       const auto & cr = geom_data_.collisionResults[k];
       if (cr.isCollision()) {
@@ -604,6 +615,7 @@ controller_interface::return_type CollisionController::update_and_write_commands
           "Collision detected between %s and %s",
           obj1.name.c_str(),
           obj2.name.c_str());
+
         return controller_interface::return_type::OK;
       }
     }
@@ -620,6 +632,8 @@ controller_interface::return_type CollisionController::update_and_write_commands
     }
   }
 
+  pinocchio::updateGeometryPlacements(model_, data_, geom_model_, geom_data_, q);
+  pinocchio::computeAllTerms(model_, data_, q, Eigen::VectorXd::Zero(model_.nv));
   publish_collision_meshes();
 
 
@@ -710,7 +724,6 @@ void CollisionController::removeCollisionsAndAddSphere(
       const auto & base_link_transform = data_.oMi[model_.getJointId(base_link)];
       const auto & global_position =
         base_link_transform.act(data_.oMi[obj.parentJoint].act(obj.placement)).translation();
-      positions.push_back(global_position);
     }
 
     // Find the base link object
@@ -721,23 +734,44 @@ void CollisionController::removeCollisionsAndAddSphere(
       }
     }
 
+    // Step 3: Compute the average position to use as position of the collision
+    Eigen::Vector3d average_position = Eigen::Vector3d::Zero();
+    for (const auto & pos : positions) {
+      average_position += pos;
+    }
+    if (!positions.empty()) {
+      average_position /= static_cast<double>(positions.size());
+    }
 
-    // Step 3: Position the new sphere based on the base link
+    // Step 3: Use the average position for the new sphere
+    Eigen::Vector3d new_position = average_position;
 
-    const auto & last_placement = last_removed_obj->placement;
     base_joint_id = last_removed_obj->parentJoint;
-    // The new sphere will be positioned based on the base link of the previous object
-    Eigen::Vector3d new_position = last_placement.translation();
-    new_position[2] += 0.04;      // Use the translation of the last removed object
+    // The new sphere will be positioned based on the average position computed
     Eigen::Quaterniond new_orientation = Eigen::Quaterniond::Identity();      // No rotation (default)
 
     // Step 4: Create the new sphere geometry with the provided radius
     new_sphere = std::make_shared<hpp::fcl::Sphere>(radius);
 
-    // Step 5: Define the transformation for the new sphere (position and orientation)
+    // Step 2: Compute the dimensions of the parallelogram mesh
+    Eigen::Vector3d dimensions = max_corner - min_corner;
+
+    // Step 3: Compute the center of the parallelogram
+    Eigen::Vector3d center = (min_corner + max_corner) / 2.0;
+
+    // Step 4: Create the parallelogram mesh
+    std::shared_ptr<hpp::fcl::CollisionGeometry> parallelogram_mesh =
+      std::make_shared<hpp::fcl::Box>(
+      dimensions.x() + 0.05, dimensions.y() + 0.05,
+      dimensions.z() + 0.05);
+
     hpp::fcl::Transform3f tf;
     tf.setIdentity();      // Initialize the transformation as identity
+    RCLCPP_INFO(
+      get_node()->get_logger(), "New sphere position: %f %f %f",
+      new_position.x(), new_position.y(), new_position.z());
     tf.translation() = new_position;   // Set the translation (position)
+    // tf.translation()[0] -= 0.2;
     tf.rotation() = new_orientation;   // Set the rotation (orientation)
 
     // Step 6: Create the collision object for the new sphere
@@ -753,7 +787,7 @@ void CollisionController::removeCollisionsAndAddSphere(
     pinocchio::GeometryObject sphere_geom_obj(
       name_collision,                // Name of the new object
       base_joint_id,                        // Attach to a specific joint ID
-      new_sphere,                           // The sphere geometry
+      parallelogram_mesh,                           // The sphere geometry
       pinocchio::SE3(tf.rotation(), tf.translation())        // The transformation (position and orientation)
     );
 
@@ -806,6 +840,29 @@ void CollisionController::publish_collision_meshes()
 
   for (const auto & obj : geom_model_.geometryObjects) {
 
+    // Skip the object if it does not belong to a pair collision
+
+    if (auto sphere = std::dynamic_pointer_cast<hpp::fcl::Sphere>(obj.geometry)) {
+      marker.type = visualization_msgs::msg::Marker::SPHERE;
+      marker.scale.x = sphere->radius * 2.0;
+      marker.scale.y = sphere->radius * 2.0;
+      marker.scale.z = sphere->radius * 2.0;
+    } else if (auto box = std::dynamic_pointer_cast<hpp::fcl::Box>(obj.geometry)) {
+      marker.type = visualization_msgs::msg::Marker::CUBE;
+      marker.scale.x = box->halfSide[0] * 2.0;
+      marker.scale.y = box->halfSide[1] * 2.0;
+      marker.scale.z = box->halfSide[2] * 2.0;
+    } else if (auto cylinder = std::dynamic_pointer_cast<hpp::fcl::Cylinder>(obj.geometry)) {
+      marker.type = visualization_msgs::msg::Marker::CYLINDER;
+      marker.scale.x = cylinder->radius * 2.0;
+      marker.scale.y = cylinder->radius * 2.0;
+      marker.scale.z = cylinder->halfLength * 2.0;
+    } else {
+      RCLCPP_WARN(
+        get_node()->get_logger(), "Unknown geometry type for object: %s",
+        obj.name.c_str());
+      continue;
+    }
     const auto & aabb = obj.geometry->aabb_local;
     const double dx = aabb.max_.x() - aabb.min_.x();
     const double dy = aabb.max_.y() - aabb.min_.y();
@@ -814,26 +871,29 @@ void CollisionController::publish_collision_meshes()
 // Diameter of a bounding sphere
     const double diameter = std::sqrt(dx * dx + dy * dy + dz * dz);
 
-    std::cout << "diameter: " << diameter << std::endl;
-    marker.header.frame_id = "base_link";  // Update to your robot's base frame
+    marker.header.frame_id = "base_footprint";  // Update to your robot's base frame
     marker.header.stamp = get_node()->now();
     marker.ns = "collision_mesh";
     marker.id = id++;
-    marker.type = visualization_msgs::msg::Marker::SPHERE;
     marker.action = visualization_msgs::msg::Marker::ADD;
 
     // retrieve oMg vector from geom_data, to take the current position of the object
-    const auto & oMg = geom_data_.oMg[obj.parentJoint];
+    const auto & oMg = data_.oMi[obj.parentJoint];
     // retrieve the placement of the object
-    const auto & placement = oMg * obj.placement;
+    const auto & placement = oMg.act(obj.placement);
+
 
     //Stream the name of the object
+    RCLCPP_INFO(
+      get_node()->get_logger(), "Object parent joint: %s",
+      model_.names[obj.parentJoint].c_str()
+    );
     RCLCPP_INFO(
       get_node()->get_logger(), "Object name: %s", obj.name.c_str());
 
     // PRint placement of object
     RCLCPP_INFO(
-      get_node()->get_logger(), "Object placement: %f, %f, %f",
+      get_node()->get_logger(), "Object placement (oMg): %f, %f, %f",
       placement.translation()[0],
       placement.translation()[1],
       placement.translation()[2]);
@@ -850,9 +910,9 @@ void CollisionController::publish_collision_meshes()
     marker.pose.orientation.w = q.w();
 
     // setting radius for the marker
-    marker.scale.x = diameter;
-    marker.scale.y = diameter;
-    marker.scale.z = diameter;
+    //marker.scale.x = diameter;
+    //marker.scale.y = diameter;
+    //marker.scale.z = diameter;
 
     marker.color.r = 1.0f;
     marker.color.g = 0.0f;
