@@ -272,6 +272,155 @@ controller_interface::CallbackReturn CollisionController::on_configure(
   };
   removeCollisionObjectsForLinks(to_remove_names);
 
+
+  return controller_interface::CallbackReturn::SUCCESS;
+}
+
+void CollisionController::reference_callback(const std::shared_ptr<ControllerReferenceMsg> msg)
+{
+  if (msg->dof_names.empty() && msg->values.size() == params_.commanded_joints.size()) {
+    RCLCPP_WARN(
+      get_node()->get_logger(),
+      "Reference massage does not have DoF names defined. "
+      "Assuming that value have order as defined state DoFs");
+    auto ref_msg = msg;
+    ref_msg->dof_names = params_.commanded_joints;
+    input_ref_.writeFromNonRT(ref_msg);
+  } else if (
+    msg->dof_names.size() == params_.commanded_joints.size() &&
+    msg->values.size() == params_.joints.size())
+  {
+    auto ref_msg = msg;   // simple initialization
+
+    // sort values in the ref_msg
+    reset_controller_reference_msg(msg, params_.commanded_joints);
+
+    bool all_found = true;
+    for (size_t i = 0; i < msg->dof_names.size(); ++i) {
+      auto found_it =
+        std::find(ref_msg->dof_names.begin(), ref_msg->dof_names.end(), msg->dof_names[i]);
+      if (found_it == msg->dof_names.end()) {
+        all_found = false;
+        RCLCPP_WARN(
+          get_node()->get_logger(), "DoF name '%s' not found in the defined list of state DoFs.",
+          msg->dof_names[i].c_str());
+        break;
+      }
+
+      auto position = std::distance(ref_msg->dof_names.begin(), found_it);
+      ref_msg->values[position] = msg->values[i];
+    }
+    if (all_found) {
+      input_ref_.writeFromNonRT(ref_msg);
+    }
+  } else {
+    RCLCPP_ERROR(
+      get_node()->get_logger(),
+      "Size of input data names (%zu) and/or values (%zu) is not matching the expected size (%zu).",
+      msg->dof_names.size(), msg->values.size(), params_.commanded_joints.size());
+  }
+
+
+}
+
+controller_interface::InterfaceConfiguration CollisionController::command_interface_configuration()
+const
+{
+  controller_interface::InterfaceConfiguration command_interfaces_config;
+  command_interfaces_config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
+
+  command_interfaces_config.names.reserve(1);
+  command_interfaces_config.names.push_back("wheel_front_left_joint/velocity");
+
+
+  return command_interfaces_config;
+}
+
+controller_interface::InterfaceConfiguration CollisionController::state_interface_configuration()
+const
+{
+  controller_interface::InterfaceConfiguration state_interfaces_config;
+
+  state_interfaces_config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
+
+  state_interfaces_config.names.reserve(params_.joints.size());
+  for (const auto & dof_name : params_.joints) {
+    state_interfaces_config.names.push_back(dof_name + "/position"); // to change into absolute position
+  }
+
+
+  return state_interfaces_config;
+}
+
+std::vector<hardware_interface::CommandInterface> CollisionController::
+on_export_reference_interfaces()
+{
+  //reference_interfaces_.resize(
+  //  params_.joints.size(), std::numeric_limits<double>::quiet_NaN());
+//
+//std::vector<hardware_interface::CommandInterface> reference_interfaces;
+//reference_interfaces.reserve(reference_interfaces_.size());
+//
+//size_t index = 0;
+//for (const auto & dof_name : params_.commanded_joints) {
+//  reference_interfaces.push_back(
+//    hardware_interface::CommandInterface(
+//      get_node()->get_name(), dof_name + "/" + params_.command_interface,
+//      &reference_interfaces_[index]));
+//  ++index;
+//}
+
+  reference_interfaces_.clear();
+
+  return {};
+}
+
+std::vector<hardware_interface::StateInterface> CollisionController::on_export_state_interfaces()
+{
+  std::vector<hardware_interface::StateInterface> state_interfaces;
+  state_interfaces.reserve(params_.joints.size());
+
+  state_interfaces_values_.resize(
+    params_.joints.size(),
+    std::numeric_limits<double>::quiet_NaN());
+  size_t index = 0;
+  for (const auto & dof_name : params_.joints) {
+    state_interfaces.push_back(
+      hardware_interface::StateInterface(
+        get_node()->get_name(), dof_name + "/" + params_.command_interface,
+        &state_interfaces_values_[index]));
+    ++index;
+  }
+
+  return state_interfaces;
+}
+
+bool CollisionController::on_set_chained_mode(bool chained_mode)
+{
+  // Always accept switch to/from chained mode
+  return true || chained_mode;
+}
+
+controller_interface::CallbackReturn CollisionController::on_activate(
+  const rclcpp_lifecycle::State & /*previous_state*/)
+{
+  // Set default value in command (the same number as state interfaces)
+  //reset_controller_reference_msg(*(input_ref_.readFromRT()), params_.joints);
+
+  // check if action server is available
+
+
+  Eigen::VectorXd q = Eigen::VectorXd::Zero(params_.joints.size() + 7);
+
+  q[6] = 1.0;
+  for (const auto & joint : params_.joints) {
+    q.tail(params_.joints.size())[model_.getJointId(joint) -
+      2] = state_interfaces_[joint_id_[joint]].get_optional().value();
+  }
+
+  pinocchio::updateGeometryPlacements(model_, data_, geom_model_, geom_data_, q);
+  pinocchio::computeAllTerms(model_, data_, q, Eigen::VectorXd::Zero(model_.nv));
+
   std::vector<std::string> gripper_head = {
     "gripper_head"
   };
@@ -380,152 +529,6 @@ controller_interface::CallbackReturn CollisionController::on_configure(
 
 // Apply the security margins
   geom_data_.setSecurityMargins(geom_model_, security_margin_map_upper, true, true);
-
-
-  return controller_interface::CallbackReturn::SUCCESS;
-}
-
-void CollisionController::reference_callback(const std::shared_ptr<ControllerReferenceMsg> msg)
-{
-  if (msg->dof_names.empty() && msg->values.size() == params_.commanded_joints.size()) {
-    RCLCPP_WARN(
-      get_node()->get_logger(),
-      "Reference massage does not have DoF names defined. "
-      "Assuming that value have order as defined state DoFs");
-    auto ref_msg = msg;
-    ref_msg->dof_names = params_.commanded_joints;
-    input_ref_.writeFromNonRT(ref_msg);
-  } else if (
-    msg->dof_names.size() == params_.commanded_joints.size() &&
-    msg->values.size() == params_.joints.size())
-  {
-    auto ref_msg = msg;   // simple initialization
-
-    // sort values in the ref_msg
-    reset_controller_reference_msg(msg, params_.commanded_joints);
-
-    bool all_found = true;
-    for (size_t i = 0; i < msg->dof_names.size(); ++i) {
-      auto found_it =
-        std::find(ref_msg->dof_names.begin(), ref_msg->dof_names.end(), msg->dof_names[i]);
-      if (found_it == msg->dof_names.end()) {
-        all_found = false;
-        RCLCPP_WARN(
-          get_node()->get_logger(), "DoF name '%s' not found in the defined list of state DoFs.",
-          msg->dof_names[i].c_str());
-        break;
-      }
-
-      auto position = std::distance(ref_msg->dof_names.begin(), found_it);
-      ref_msg->values[position] = msg->values[i];
-    }
-    if (all_found) {
-      input_ref_.writeFromNonRT(ref_msg);
-    }
-  } else {
-    RCLCPP_ERROR(
-      get_node()->get_logger(),
-      "Size of input data names (%zu) and/or values (%zu) is not matching the expected size (%zu).",
-      msg->dof_names.size(), msg->values.size(), params_.commanded_joints.size());
-  }
-
-
-}
-
-controller_interface::InterfaceConfiguration CollisionController::command_interface_configuration()
-const
-{
-  controller_interface::InterfaceConfiguration command_interfaces_config;
-  command_interfaces_config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
-
-  command_interfaces_config.names.reserve(1);
-  command_interfaces_config.names.push_back("robot/is_in_collision");
-
-
-  return command_interfaces_config;
-}
-
-controller_interface::InterfaceConfiguration CollisionController::state_interface_configuration()
-const
-{
-  controller_interface::InterfaceConfiguration state_interfaces_config;
-
-  state_interfaces_config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
-
-  state_interfaces_config.names.reserve(params_.joints.size());
-  for (const auto & dof_name : params_.joints) {
-    state_interfaces_config.names.push_back(dof_name + "/position"); // to change into absolute position
-  }
-
-
-  return state_interfaces_config;
-}
-
-std::vector<hardware_interface::CommandInterface> CollisionController::
-on_export_reference_interfaces()
-{
-  //reference_interfaces_.resize(
-  //  params_.joints.size(), std::numeric_limits<double>::quiet_NaN());
-//
-//std::vector<hardware_interface::CommandInterface> reference_interfaces;
-//reference_interfaces.reserve(reference_interfaces_.size());
-//
-//size_t index = 0;
-//for (const auto & dof_name : params_.commanded_joints) {
-//  reference_interfaces.push_back(
-//    hardware_interface::CommandInterface(
-//      get_node()->get_name(), dof_name + "/" + params_.command_interface,
-//      &reference_interfaces_[index]));
-//  ++index;
-//}
-
-  reference_interfaces_.clear();
-
-  return {};
-}
-
-std::vector<hardware_interface::StateInterface> CollisionController::on_export_state_interfaces()
-{
-  std::vector<hardware_interface::StateInterface> state_interfaces;
-  state_interfaces.reserve(params_.joints.size());
-
-  state_interfaces_values_.resize(
-    params_.joints.size(),
-    std::numeric_limits<double>::quiet_NaN());
-  size_t index = 0;
-  for (const auto & dof_name : params_.joints) {
-    state_interfaces.push_back(
-      hardware_interface::StateInterface(
-        get_node()->get_name(), dof_name + "/" + params_.command_interface,
-        &state_interfaces_values_[index]));
-    ++index;
-  }
-
-  return state_interfaces;
-}
-
-bool CollisionController::on_set_chained_mode(bool chained_mode)
-{
-  // Always accept switch to/from chained mode
-  return true || chained_mode;
-}
-
-controller_interface::CallbackReturn CollisionController::on_activate(
-  const rclcpp_lifecycle::State & /*previous_state*/)
-{
-  // Set default value in command (the same number as state interfaces)
-  //reset_controller_reference_msg(*(input_ref_.readFromRT()), params_.joints);
-
-  // check if action server is available
-
-
-  Eigen::VectorXd q = Eigen::VectorXd::Zero(params_.joints.size() + 7);
-
-  q[6] = 1.0;
-  for (const auto & joint : params_.joints) {
-    q.tail(params_.joints.size())[model_.getJointId(joint) -
-      2] = state_interfaces_[joint_id_[joint]].get_optional().value();
-  }
 
 
   return controller_interface::CallbackReturn::SUCCESS;
@@ -762,8 +765,8 @@ void CollisionController::removeCollisionsAndAddSphere(
     // Step 4: Create the parallelogram mesh
     std::shared_ptr<hpp::fcl::CollisionGeometry> parallelogram_mesh =
       std::make_shared<hpp::fcl::Box>(
-      dimensions.x() + 0.05, dimensions.y() + 0.05,
-      dimensions.z() + 0.05);
+      dimensions.x() + 0.02, dimensions.y() + 0.02,
+      dimensions.z() + 0.02);
 
     hpp::fcl::Transform3f tf;
     tf.setIdentity();      // Initialize the transformation as identity
