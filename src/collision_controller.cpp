@@ -511,6 +511,17 @@ controller_interface::CallbackReturn CollisionController::on_activate(
   security_margin_map.triangularView<Eigen::Upper>().setConstant(0.01);
   security_margin_map.triangularView<Eigen::Lower>().setZero();
 
+// Put to 0.005 the value if one of the pairs contatin "torso"
+  for (const auto & pair : geom_model_.collisionPairs) {
+    const auto & name1 = geom_model_.geometryObjects[pair.first].name;
+    const auto & name2 = geom_model_.geometryObjects[pair.second].name;
+
+    if (name1.find("torso") != std::string::npos || name2.find("torso") != std::string::npos) {
+      security_margin_map(pair.first, pair.second) = 0.005;
+      // Optional: if symmetric margins are needed, set the reverse as well
+    }
+  }
+
 // Now override pairs where both geometry names contain "arm"
   for (const auto & pair : geom_model_.collisionPairs) {
     const auto & name1 = geom_model_.geometryObjects[pair.first].name;
@@ -861,9 +872,9 @@ void CollisionController::publish_collision_meshes()
       marker.scale.y = cylinder->radius * 2.0;
       marker.scale.z = cylinder->halfLength * 2.0;
     } else {
-      RCLCPP_WARN(
-        get_node()->get_logger(), "Unknown geometry type for object: %s",
-        obj.name.c_str());
+      /*   RCLCPP_WARN(
+           get_node()->get_logger(), "Unknown geometry type for object: %s",
+           obj.name.c_str());*/
       continue;
     }
     const auto & aabb = obj.geometry->aabb_local;
@@ -887,20 +898,20 @@ void CollisionController::publish_collision_meshes()
 
 
     //Stream the name of the object
-    RCLCPP_INFO(
-      get_node()->get_logger(), "Object parent joint: %s",
-      model_.names[obj.parentJoint].c_str()
-    );
-    RCLCPP_INFO(
-      get_node()->get_logger(), "Object name: %s", obj.name.c_str());
+    /*  RCLCPP_INFO(
+        get_node()->get_logger(), "Object parent joint: %s",
+        model_.names[obj.parentJoint].c_str()
+      );
+      RCLCPP_INFO(
+        get_node()->get_logger(), "Object name: %s", obj.name.c_str());
 
-    // PRint placement of object
-    RCLCPP_INFO(
-      get_node()->get_logger(), "Object placement (oMg): %f, %f, %f",
-      placement.translation()[0],
-      placement.translation()[1],
-      placement.translation()[2]);
-
+      // PRint placement of object
+      RCLCPP_INFO(
+        get_node()->get_logger(), "Object placement (oMg): %f, %f, %f",
+        placement.translation()[0],
+        placement.translation()[1],
+        placement.translation()[2]);
+  */
 
     marker.pose.position.x = placement.translation()[0];
     marker.pose.position.y = placement.translation()[1];
