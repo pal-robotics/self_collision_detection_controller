@@ -733,10 +733,6 @@ void CollisionController::removeCollisionsAndAddSphere(
       }
     }
 
-    for (auto obj : collisionObjects) {
-      // Transform the position to the base link frame using the base link's placement
-      const auto & base_link_transform = data_.oMi[model_.getJointId(base_link)];
-    }
 
     // Find the base link object
     for (const auto & obj : geom_model_.geometryObjects) {
@@ -873,9 +869,6 @@ void CollisionController::publish_collision_meshes()
       continue;
     }
     const auto & aabb = obj.geometry->aabb_local;
-    const double dx = aabb.max_.x() - aabb.min_.x();
-    const double dy = aabb.max_.y() - aabb.min_.y();
-    const double dz = aabb.max_.z() - aabb.min_.z();
 
     marker.header.frame_id = "base_footprint";  // Update to your robot's base frame
     marker.header.stamp = get_node()->now();
