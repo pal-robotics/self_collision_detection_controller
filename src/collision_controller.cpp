@@ -736,8 +736,6 @@ void CollisionController::removeCollisionsAndAddSphere(
     for (auto obj : collisionObjects) {
       // Transform the position to the base link frame using the base link's placement
       const auto & base_link_transform = data_.oMi[model_.getJointId(base_link)];
-      const auto & global_position =
-        base_link_transform.act(data_.oMi[obj.parentJoint].act(obj.placement)).translation();
     }
 
     // Find the base link object
@@ -769,9 +767,6 @@ void CollisionController::removeCollisionsAndAddSphere(
 
     // Step 2: Compute the dimensions of the parallelogram mesh
     Eigen::Vector3d dimensions = max_corner - min_corner;
-
-    // Step 3: Compute the center of the parallelogram
-    Eigen::Vector3d center = (min_corner + max_corner) / 2.0;
 
     // Step 4: Create the parallelogram mesh
     std::shared_ptr<hpp::fcl::CollisionGeometry> parallelogram_mesh =
@@ -881,9 +876,6 @@ void CollisionController::publish_collision_meshes()
     const double dx = aabb.max_.x() - aabb.min_.x();
     const double dy = aabb.max_.y() - aabb.min_.y();
     const double dz = aabb.max_.z() - aabb.min_.z();
-
-// Diameter of a bounding sphere
-    const double diameter = std::sqrt(dx * dx + dy * dy + dz * dz);
 
     marker.header.frame_id = "base_footprint";  // Update to your robot's base frame
     marker.header.stamp = get_node()->now();
