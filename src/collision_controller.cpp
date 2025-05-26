@@ -868,7 +868,6 @@ void CollisionController::publish_collision_meshes()
            obj.name.c_str());*/
       continue;
     }
-    const auto & aabb = obj.geometry->aabb_local;
 
     marker.header.frame_id = "base_footprint";  // Update to your robot's base frame
     marker.header.stamp = get_node()->now();
