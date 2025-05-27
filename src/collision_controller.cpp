@@ -460,6 +460,9 @@ controller_interface::CallbackReturn CollisionController::on_activate(
     "gripper_left", "arm_left_5_link_0");
   removeCollisionBetweenLinks(
     "gripper_right", "arm_right_5_link_0");
+
+  removeCollisionBetweenLinks(
+    "torso_lift_link_0", "arm_right_4_link_0");
   geom_data_ = pinocchio::GeometryData(geom_model_);
 
 
@@ -517,6 +520,17 @@ controller_interface::CallbackReturn CollisionController::on_activate(
     const auto & name2 = geom_model_.geometryObjects[pair.second].name;
 
     if (name1.find("torso") != std::string::npos || name2.find("torso") != std::string::npos) {
+      security_margin_map(pair.first, pair.second) = 0.005;
+      // Optional: if symmetric margins are needed, set the reverse as well
+    }
+  }
+
+// Put to 0.005 the value if one of the pairs contatin "gripper"
+  for (const auto & pair : geom_model_.collisionPairs) {
+    const auto & name1 = geom_model_.geometryObjects[pair.first].name;
+    const auto & name2 = geom_model_.geometryObjects[pair.second].name;
+
+    if (name1.find("gripper") != std::string::npos || name2.find("gripper") != std::string::npos) {
       security_margin_map(pair.first, pair.second) = 0.005;
       // Optional: if symmetric margins are needed, set the reverse as well
     }
@@ -755,8 +769,10 @@ void CollisionController::removeCollisionsAndAddSphere(
     Eigen::Vector3d new_position = average_position;
 
     base_joint_id = last_removed_obj->parentJoint;
-    // The new sphere will be positioned based on the average position computed
-    Eigen::Quaterniond new_orientation = Eigen::Quaterniond::Identity();      // No rotation (default)
+    // Set new orientation as the rotation of the last removed object
+    Eigen::Quaterniond new_orientation(
+      data_.oMi[base_joint_id].rotation().transpose() *
+      last_removed_obj->placement.rotation());
 
     // Step 4: Create the new sphere geometry with the provided radius
     new_sphere = std::make_shared<hpp::fcl::Sphere>(radius);
@@ -767,8 +783,8 @@ void CollisionController::removeCollisionsAndAddSphere(
     // Step 4: Create the parallelogram mesh
     std::shared_ptr<hpp::fcl::CollisionGeometry> parallelogram_mesh =
       std::make_shared<hpp::fcl::Box>(
-      dimensions.x() + 0.02, dimensions.y() + 0.02,
-      dimensions.z() + 0.02);
+      dimensions.x(), dimensions.y(),
+      dimensions.z());
 
     hpp::fcl::Transform3f tf;
     tf.setIdentity();      // Initialize the transformation as identity
@@ -776,7 +792,7 @@ void CollisionController::removeCollisionsAndAddSphere(
       get_node()->get_logger(), "New sphere position: %f %f %f",
       new_position.x(), new_position.y(), new_position.z());
     tf.translation() = new_position;   // Set the translation (position)
-    // tf.translation()[0] -= 0.2;
+    // Set to
     tf.rotation() = new_orientation;   // Set the rotation (orientation)
 
     // Step 6: Create the collision object for the new sphere
