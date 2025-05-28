@@ -117,8 +117,8 @@ protected:
   controller_interface::CallbackReturn configure_parameters();
 
   void removeCollisionObjectsForLinks(const std::vector<std::string> & link_names);
-  void removeCollisionsAndAddSphere(
-    const std::vector<std::string> & to_remove_names, double radius,
+  void removeCollisionsAndAddBox(
+    const std::vector<std::string> & to_remove_names,
     std::string name_collision);
 
   void removeCollisionBetweenLinks(const std::string & link1, const std::string & link2);

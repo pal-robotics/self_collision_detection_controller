@@ -34,3 +34,10 @@ collision_controller:
     description: "Robot collision description",
     read_only: false,
   }
+
+  publish_mesh: {
+    type: bool, 
+    default_value: false,
+    description: "If true, the meshes are visualized in rviz",
+    read_only: true,
+  }

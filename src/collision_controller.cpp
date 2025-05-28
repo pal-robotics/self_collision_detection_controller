@@ -330,7 +330,7 @@ const
   command_interfaces_config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
 
   command_interfaces_config.names.reserve(1);
-  command_interfaces_config.names.push_back("robot/is_in_collision");
+  command_interfaces_config.names.push_back("wheel_front_left_joint/velocity");
 
 
   return command_interfaces_config;
@@ -424,18 +424,18 @@ controller_interface::CallbackReturn CollisionController::on_activate(
   std::vector<std::string> gripper_head = {
     "gripper_head"
   };
-  removeCollisionsAndAddSphere(
-    gripper_head, 0.05, "gripper_head");
+  removeCollisionsAndAddBox(
+    gripper_head, "gripper_head");
 
   std::vector<std::string> gripper_left;
   gripper_left.push_back("gripper_left");
-  removeCollisionsAndAddSphere(
-    gripper_left, 0.05, "gripper_left");
+  removeCollisionsAndAddBox(
+    gripper_left, "gripper_left");
 
   std::vector<std::string> gripper_right;
   gripper_right.push_back("gripper_right");
-  removeCollisionsAndAddSphere(
-    gripper_right, 0.05, "gripper_right");
+  removeCollisionsAndAddBox(
+    gripper_right, "gripper_right");
 
 
   geom_model_.collisionPairs.clear();
@@ -602,7 +602,9 @@ controller_interface::return_type CollisionController::update_and_write_commands
 
       pinocchio::updateGeometryPlacements(model_, data_, geom_model_, geom_data_, q);
       pinocchio::computeAllTerms(model_, data_, q, Eigen::VectorXd::Zero(model_.nv));
-      publish_collision_meshes();
+      if (params_.publish_mesh) {
+        publish_collision_meshes();
+      }
 
       auto end = std::chrono::high_resolution_clock::now();
       auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
@@ -624,8 +626,9 @@ controller_interface::return_type CollisionController::update_and_write_commands
 
     pinocchio::updateGeometryPlacements(model_, data_, geom_model_, geom_data_, q);
     pinocchio::computeAllTerms(model_, data_, q, Eigen::VectorXd::Zero(model_.nv));
-    publish_collision_meshes();
-
+    if (params_.publish_mesh) {
+      publish_collision_meshes();
+    }
 
     for (size_t k = 0; k < geom_model_.collisionPairs.size(); ++k) {
       const auto & cr = geom_data_.collisionResults[k];
@@ -662,8 +665,9 @@ controller_interface::return_type CollisionController::update_and_write_commands
 
   pinocchio::updateGeometryPlacements(model_, data_, geom_model_, geom_data_, q);
   pinocchio::computeAllTerms(model_, data_, q, Eigen::VectorXd::Zero(model_.nv));
-  publish_collision_meshes();
-
+  if (params_.publish_mesh) {
+    publish_collision_meshes();
+  }
 
   collision_prev = current_collision;
 
@@ -703,8 +707,8 @@ void CollisionController::removeCollisionObjectsForLinks(
   geom_model_.addAllCollisionPairs();
 }
 
-void CollisionController::removeCollisionsAndAddSphere(
-  const std::vector<std::string> & to_remove_names, double radius,
+void CollisionController::removeCollisionsAndAddBox(
+  const std::vector<std::string> & to_remove_names,
   std::string name_collision)
 {
   // Step 1: Compute the bounding box that encompasses all the objects in `to_remove_names`
@@ -712,8 +716,8 @@ void CollisionController::removeCollisionsAndAddSphere(
   Eigen::Vector3d max_corner = Eigen::Vector3d::Constant(std::numeric_limits<double>::lowest());
 
 
-  // Step 1: Prepare for the new collision sphere (initializing it as null)
-  std::shared_ptr<hpp::fcl::CollisionGeometry> new_sphere;
+  // Step 1: Prepare for the new collision box (initializing it as null)
+  std::shared_ptr<hpp::fcl::CollisionGeometry> new_box;
 
   // Step 2: Loop over the list of geometry objects and remove those with matching names
   std::vector<pinocchio::GeometryObject> collisionObjects;
@@ -722,16 +726,11 @@ void CollisionController::removeCollisionsAndAddSphere(
   std::vector<Eigen::Vector3d> positions;
 
   for (const auto & obj : geom_model_.geometryObjects) {
+    // Taking the existing geometry objects that match the names in `to_remove_names`
     for (const auto & name : to_remove_names) {
-      if (obj.name.rfind(name, 0) == 0) {        // Matching name (starts with 'name')
+      if (obj.name.rfind(name, 0) == 0) {
         collisionObjects.push_back(obj);
         to_remove.push_back(obj.name);
-        // Store the position of the object to be removed
-        positions.push_back(obj.placement.translation());
-        const auto & global_position = data_.oMi[obj.parentJoint].act(obj.placement).translation();
-        min_corner = min_corner.cwiseMin(global_position);
-        max_corner = max_corner.cwiseMax(global_position);
-
       }
     }
   }
@@ -743,10 +742,17 @@ void CollisionController::removeCollisionsAndAddSphere(
     for (const auto & frame : model_.frames) {
       if (frame.parent == joint_id && frame.type == pinocchio::FrameType::BODY) {
         base_link = frame.name;
+        RCLCPP_INFO(
+          get_node()->get_logger(), "Base link found: %s", base_link.c_str());
         break;
       }
     }
-
+    if (base_link.empty()) {
+      RCLCPP_ERROR(
+        get_node()->get_logger(), "Base link not found in the model. Cannot proceed with collision "
+        "removal and Box addition.");
+      return;
+    }
 
     // Find the base link object
     for (const auto & obj : geom_model_.geometryObjects) {
@@ -755,65 +761,89 @@ void CollisionController::removeCollisionsAndAddSphere(
         break;
       }
     }
+    base_joint_id = last_removed_obj->parentJoint;
 
-    // Step 3: Compute the average position to use as position of the collision
+    // Save positions of the removed objects with respect to the base joint position
+    positions.reserve(collisionObjects.size());
+    for (const auto & obj : collisionObjects) {
+      const auto & global_position =
+        data_.oMi[obj.parentJoint].act(obj.placement).translation();
+      // distance from base joint position in base joint frame
+      Eigen::Vector3d position_in_base_frame =
+        data_.oMi[base_joint_id].actInv(global_position);
+      min_corner = min_corner.cwiseMin(position_in_base_frame);
+      max_corner = max_corner.cwiseMax(position_in_base_frame);
+      positions.push_back(position_in_base_frame);
+    }
+
+    std::vector<Eigen::Vector3d> corners;
+    corners.reserve(8);
+    for (int i = 0; i < 8; ++i) {
+      corners.emplace_back(
+        (i & 1 ? max_corner[0] : min_corner[0]),
+        (i & 2 ? max_corner[1] : min_corner[1]),
+        (i & 4 ? max_corner[2] : min_corner[2])
+      );
+    }
+    // Compute the average position of the removed objects
     Eigen::Vector3d average_position = Eigen::Vector3d::Zero();
-    for (const auto & pos : positions) {
+    for (const auto & pos : corners) {
       average_position += pos;
     }
-    if (!positions.empty()) {
-      average_position /= static_cast<double>(positions.size());
+    if (!corners.empty()) {
+      average_position /= static_cast<double>(corners.size());
+    } else {
+      RCLCPP_ERROR(
+        get_node()->get_logger(), "No positions found for the removed objects. Cannot compute "
+        "average position.");
+      return;
     }
 
-    // Step 3: Use the average position for the new sphere
+    Eigen::Vector3d min_pt = corners[0];
+    Eigen::Vector3d max_pt = corners[0];
+
+    for (const auto & corner : corners) {
+      min_pt = min_pt.cwiseMin(corner);
+      max_pt = max_pt.cwiseMax(corner);
+    }
+
+
+    // Set the new position for the Box
     Eigen::Vector3d new_position = average_position;
 
-    base_joint_id = last_removed_obj->parentJoint;
-    // Set new orientation as the rotation of the last removed object
-    Eigen::Quaterniond new_orientation(
-      data_.oMi[base_joint_id].rotation().transpose() *
-      last_removed_obj->placement.rotation());
-
-    // Step 4: Create the new sphere geometry with the provided radius
-    new_sphere = std::make_shared<hpp::fcl::Sphere>(radius);
+    // Set new orientation as identyty
+    Eigen::Quaterniond new_orientation = Eigen::Quaterniond::Identity();
 
     // Step 2: Compute the dimensions of the parallelogram mesh
-    Eigen::Vector3d dimensions = max_corner - min_corner;
+    Eigen::Vector3d dimensions = max_pt - min_pt;
 
     // Step 4: Create the parallelogram mesh
     std::shared_ptr<hpp::fcl::CollisionGeometry> parallelogram_mesh =
       std::make_shared<hpp::fcl::Box>(
-      dimensions.x(), dimensions.y(),
-      dimensions.z());
+      dimensions.x() + 0.015, dimensions.y() + 0.015,
+      dimensions.z() + 0.015);
+
 
     hpp::fcl::Transform3f tf;
     tf.setIdentity();      // Initialize the transformation as identity
     RCLCPP_INFO(
-      get_node()->get_logger(), "New sphere position: %f %f %f",
+      get_node()->get_logger(), "New box position: %f %f %f",
       new_position.x(), new_position.y(), new_position.z());
-    tf.translation() = new_position;   // Set the translation (position)
+    tf.translation() = new_position;     // Set the translation (position)
     // Set to
-    tf.rotation() = new_orientation;   // Set the rotation (orientation)
+    tf.rotation() = new_orientation;     // Set the rotation (orientation)
 
-    // Step 6: Create the collision object for the new sphere
-    hpp::fcl::CollisionObject sphere_coll_obj(new_sphere, tf);
 
-    // Optional: Compute the AABB for the new sphere (for collision detection optimization)
-    sphere_coll_obj.computeAABB();
-    hpp::fcl::AABB sphere_aabb = sphere_coll_obj.getAABB();
-    std::cout << "New Sphere AABB: min: " << sphere_aabb.min_.transpose() << ", max: " <<
-      sphere_aabb.max_.transpose() << std::endl;
-
-    // Step 7: Add the new sphere to the model
-    pinocchio::GeometryObject sphere_geom_obj(
+    // Step 7: Add the new box to the model
+    pinocchio::GeometryObject box_geom_obj(
       name_collision,                // Name of the new object
       base_joint_id,                        // Attach to a specific joint ID
-      parallelogram_mesh,                           // The sphere geometry
+      parallelogram_mesh,                           // The box geometry
       pinocchio::SE3(tf.rotation(), tf.translation())        // The transformation (position and orientation)
     );
 
     // Add the new geometry object to the model
-    geom_model_.addGeometryObject(sphere_geom_obj);
+    geom_model_.addGeometryObject(box_geom_obj);
 
     // Remove the identified objects from the model
     for (const auto & name : to_remove) {
@@ -839,7 +869,7 @@ void CollisionController::removeCollisionBetweenLinks(
 
     // Retrieve geometry names based on the IDs or references (assuming IDs are used)
     std::string name1 = geom_model_.geometryObjects[pair.first].name;     // Add appropriate method to get name by ID
-    std::string name2 = geom_model_.geometryObjects[pair.second].name;   // Add appropriate method to get name by ID
+    std::string name2 = geom_model_.geometryObjects[pair.second].name;     // Add appropriate method to get name by ID
 
     // Check if the names match the given link names
     if ((name1 == link1 && name2 == link2) || (name1 == link2 && name2 == link1)) {
@@ -885,7 +915,7 @@ void CollisionController::publish_collision_meshes()
       continue;
     }
 
-    marker.header.frame_id = "base_footprint";  // Update to your robot's base frame
+    marker.header.frame_id = "base_footprint";     // Update to your robot's base frame
     marker.header.stamp = get_node()->now();
     marker.ns = "collision_mesh";
     marker.id = id++;
