@@ -52,6 +52,6 @@ collision_controller:
       - gripper_right_finger_3_flexor_2_joint
       - gripper_right_finger_3_flexor_3_joint
 
-    publish_mesh: true
+    publish_mesh: false
 
     command_interface: position
