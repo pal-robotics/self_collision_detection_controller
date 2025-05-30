@@ -2,6 +2,29 @@
 Changelog for package collision_controller
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+Forthcoming
+-----------
+* Merge branch 'vmo/visualize_mesh' into 'main'
+  Adding collision to allegro hand
+  See merge request control/collision_controller!4
+* Adding param publish mesh
+* Adding correct state interface
+* Fixing collision box
+* Adding rotation of the mesh
+* Fix pipelines
+* Fix pipeline
+* Fix pipeline
+* Fixing command interface
+* Adding security margin for torso separately
+* Adding mesh after state computation
+* Adding box instead of sphere
+* adding computation of corner for the mesh
+* Changing lifetime of the collision
+* adding diaemter computation for mesh
+* Adding publish function
+* Adding publisher for meshes
+* Contributors: vivianamorlando
+
 0.0.4 (2025-04-29)
 ------------------
 * Merge branch 'vmo/fix_gripper_detection' into 'main'
