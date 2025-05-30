@@ -107,6 +107,9 @@ protected:
 
   std::vector<hardware_interface::StateInterface> on_export_state_interfaces() override;
 
+  void publish_collision_meshes();
+
+
   bool on_set_chained_mode(bool chained_mode) override;
 
   // internal methods
@@ -114,8 +117,8 @@ protected:
   controller_interface::CallbackReturn configure_parameters();
 
   void removeCollisionObjectsForLinks(const std::vector<std::string> & link_names);
-  void removeCollisionsAndAddSphere(
-    const std::vector<std::string> & to_remove_names, double radius,
+  void removeCollisionsAndAddBox(
+    const std::vector<std::string> & to_remove_names,
     std::string name_collision);
 
   void removeCollisionBetweenLinks(const std::string & link1, const std::string & link2);

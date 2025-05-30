@@ -19,4 +19,39 @@ collision_controller:
       - arm_right_6_joint
       - arm_right_7_joint
       - torso_lift_joint
+      - gripper_left_thumb_rotatory_joint
+      - gripper_left_thumb_flexor_1_joint
+      - gripper_left_thumb_flexor_2_joint
+      - gripper_left_thumb_flexor_3_joint
+      - gripper_left_finger_1_rotatory_joint
+      - gripper_left_finger_1_flexor_1_joint
+      - gripper_left_finger_1_flexor_2_joint
+      - gripper_left_finger_1_flexor_3_joint
+      - gripper_left_finger_2_rotatory_joint
+      - gripper_left_finger_2_flexor_1_joint
+      - gripper_left_finger_2_flexor_2_joint
+      - gripper_left_finger_2_flexor_3_joint
+      - gripper_left_finger_3_rotatory_joint
+      - gripper_left_finger_3_flexor_1_joint
+      - gripper_left_finger_3_flexor_2_joint
+      - gripper_left_finger_3_flexor_3_joint
+      - gripper_right_thumb_rotatory_joint
+      - gripper_right_thumb_flexor_1_joint
+      - gripper_right_thumb_flexor_2_joint
+      - gripper_right_thumb_flexor_3_joint
+      - gripper_right_finger_1_rotatory_joint
+      - gripper_right_finger_1_flexor_1_joint
+      - gripper_right_finger_1_flexor_2_joint
+      - gripper_right_finger_1_flexor_3_joint
+      - gripper_right_finger_2_rotatory_joint
+      - gripper_right_finger_2_flexor_1_joint
+      - gripper_right_finger_2_flexor_2_joint
+      - gripper_right_finger_2_flexor_3_joint
+      - gripper_right_finger_3_rotatory_joint
+      - gripper_right_finger_3_flexor_1_joint
+      - gripper_right_finger_3_flexor_2_joint
+      - gripper_right_finger_3_flexor_3_joint
+
+    publish_mesh: false
+
     command_interface: position
