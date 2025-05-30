@@ -2,8 +2,8 @@
 Changelog for package collision_controller
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Forthcoming
------------
+0.0.5 (2025-05-30)
+------------------
 * Merge branch 'vmo/visualize_mesh' into 'main'
   Adding collision to allegro hand
   See merge request control/collision_controller!4
