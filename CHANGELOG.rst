@@ -2,6 +2,14 @@
 Changelog for package collision_controller
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+Forthcoming
+-----------
+* Merge branch 'change-license' into 'main'
+  change license from proprietary to apache
+  See merge request control/collision_controller!5
+* change license from proprietary to apache
+* Contributors: ileniaperrella
+
 0.0.5 (2025-05-30)
 ------------------
 * Merge branch 'vmo/visualize_mesh' into 'main'
