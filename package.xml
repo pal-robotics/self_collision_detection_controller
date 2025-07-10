@@ -5,7 +5,7 @@
   <version>0.0.5</version>
   <description>Controller for check collision.</description>
   <maintainer email="viviana.morlando@pal-robotics.com">Viviana Morlando</maintainer>
-   <license>Propietary</license>
+   <license>Apache License 2.0</license>
 
 
   <buildtool_depend>ament_cmake_auto</buildtool_depend>
