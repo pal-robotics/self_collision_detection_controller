@@ -2,8 +2,8 @@
 Changelog for package collision_controller
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Forthcoming
------------
+0.0.6 (2025-07-10)
+------------------
 * Merge branch 'change-license' into 'main'
   change license from proprietary to apache
   See merge request control/collision_controller!5
