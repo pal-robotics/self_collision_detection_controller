@@ -2,6 +2,11 @@
 Changelog for package collision_controller
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+Forthcoming
+-----------
+* Renaming pkg
+* Contributors: vivianamorlando
+
 0.0.6 (2025-07-10)
 ------------------
 * Merge branch 'change-license' into 'main'
