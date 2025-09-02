@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(collision_controller)
+project(self_collision_detection_controller)
 
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
@@ -18,15 +18,15 @@ generate_parameter_library(collision_controller_parameters
   src/collision_controller.yaml
 )
 
-ament_auto_add_library(collision_controller SHARED
+ament_auto_add_library(self_collision_detection_controller SHARED
   src/collision_controller.cpp
 )
-target_include_directories(collision_controller PUBLIC
+target_include_directories(self_collision_detection_controller PUBLIC
   ${EIGEN3_INCLUDE_DIR}
   pinocchio::pinocchio
 )
 
-target_link_libraries(collision_controller 
+target_link_libraries(self_collision_detection_controller 
   collision_controller_parameters 
   ${EIGEN3_LIBRARIES}
   pinocchio::pinocchio

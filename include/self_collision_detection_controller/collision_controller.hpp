@@ -24,7 +24,7 @@
 #include "controller_interface/chainable_controller_interface.hpp"
 #include "std_msgs/msg/float64.hpp"
 #include "std_msgs/msg/string.hpp"
-#include "collision_controller/collision_controller_parameters.hpp"
+#include "self_collision_detection_controller/collision_controller_parameters.hpp"
 #include "rclcpp_lifecycle/state.hpp"
 #include <realtime_tools/realtime_buffer.hpp>
 #include <realtime_tools/realtime_publisher.hpp>
