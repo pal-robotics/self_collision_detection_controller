@@ -38,6 +38,5 @@ target_link_libraries(self_collision_detection_controller
 
 pluginlib_export_plugin_description_file(controller_interface collision_controller.xml)
 
-ament_auto_package(INSTALL_TO_SHARE launch config
-USE_SCOPED_HEADER_INSTALL_DIR) 
+ament_auto_package(INSTALL_TO_SHARE launch config) 
 
