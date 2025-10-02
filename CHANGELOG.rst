@@ -2,6 +2,11 @@
 Changelog for package collision_controller
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+Forthcoming
+-----------
+* Rm USE_SCOPED_HEADER_INSTALL_DIR for stable pipeline
+* Contributors: vivianamorlando
+
 0.0.8 (2025-10-02)
 ------------------
 * Fix pipeline
