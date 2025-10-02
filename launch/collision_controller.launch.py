@@ -29,7 +29,7 @@ class LaunchArguments(LaunchArgumentsBase):
 def declare_actions(launch_description: LaunchDescription, launch_args: LaunchArguments):
 
     pkg_share_directory = get_package_share_directory(
-        'collision_controller')
+        'self_collision_detection_controller')
 
     controller_config = os.path.join(
         pkg_share_directory,
