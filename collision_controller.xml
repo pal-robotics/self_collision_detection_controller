@@ -1,4 +1,4 @@
-<library path="collision_controller">
+<library path="self_collision_detection_controller">
   <class name="collision_controller/CollisionController"
          type="collision_controller::CollisionController" base_class_type="controller_interface::ChainableControllerInterface">
   <description>
