@@ -2,6 +2,13 @@
 Changelog for package collision_controller
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+Forthcoming
+-----------
+* Fix pipeline
+* Fix name of the lib in plugin
+* Fix name of the lib in launch file
+* Contributors: vivianamorlando
+
 0.0.7 (2025-09-02)
 ------------------
 * Renaming pkg
