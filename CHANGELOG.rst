@@ -2,8 +2,8 @@
 Changelog for package collision_controller
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Forthcoming
------------
+0.0.8 (2025-10-02)
+------------------
 * Fix pipeline
 * Fix name of the lib in plugin
 * Fix name of the lib in launch file
