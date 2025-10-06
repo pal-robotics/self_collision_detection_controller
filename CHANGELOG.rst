@@ -2,8 +2,8 @@
 Changelog for package collision_controller
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Forthcoming
------------
+0.1.0 (2025-10-06)
+------------------
 * Add again USE_SCOPED_HEADER_INSTALL_DIR for devel
 * Contributors: vivianamorlando
 
